@@ -67,6 +67,10 @@ binding between your SwiftUI state and the animation's view model.
 - ``RiveAlignment``
 - ``RiveLayoutScale``
 
+### Snapshots
+
+- ``RiveDocument/snapshot(artboard:stateMachine:size:fit:scale:at:)``
+
 ### Diagnostics
 
 - ``RiveDocument/dumpViewModels()``

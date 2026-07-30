@@ -3,9 +3,10 @@ import Foundation
 internal import RiveRuntime
 
 /// Reads artboard bounds through the legacy Objective-C `RiveFile` API.
-/// The Concurrency runtime has no artboard size API, so this is the only file
-/// that touches legacy runtime types; callers cache the ``Catalog``, so each
-/// document pays for at most one legacy parse.
+/// The Concurrency runtime has no artboard size API, so this shim parses the
+/// bytes once with the legacy runtime; callers cache the ``Catalog``, so each
+/// document pays for at most one legacy parse. Legacy runtime types are
+/// confined to this file and ``LegacySnapshotRenderer``.
 ///
 /// Delete when rive-ios ships requestArtboardSize (rive-ios #323).
 @MainActor

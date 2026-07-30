@@ -161,9 +161,10 @@ public final class RiveDocument {
         return catalog
     }
 
-    /// Re-obtains the original `.riv` bytes for the bounds shim: from the
-    /// source, from disk, or from the bytes retained at download time.
-    private func sourceBytes() throws -> Data {
+    /// Re-obtains the original `.riv` bytes for the legacy shims (bounds
+    /// catalog, snapshot renderer): from the source, from disk, or from the
+    /// bytes retained at download time.
+    func sourceBytes() throws -> Data {
         switch source.storage {
         case .data(let data, _):
             return data
@@ -181,14 +182,29 @@ public final class RiveDocument {
                 return retainedRemoteBytes
             }
             guard url.isFileURL else {
-                // Unreachable in practice: init retains remote bytes until the
-                // catalog is built, and the catalog makes this call moot.
+                // Remote bytes already released (the bounds catalog is built).
+                // Callers that can re-download go through
+                // ``bytesRedownloadingIfNeeded()`` instead.
                 throw RiveLoadError.downloadFailed(url: url)
             }
             guard let data = try? Data(contentsOf: url) else {
                 throw RiveLoadError.fileNotFound(resource: url.deletingPathExtension().lastPathComponent)
             }
             return data
+        }
+    }
+
+    /// Like ``sourceBytes()``, but re-downloads a remote source whose retained
+    /// bytes were already released. Used by the snapshot renderer, which can
+    /// run long after load.
+    func bytesRedownloadingIfNeeded() async throws -> Data {
+        do {
+            return try sourceBytes()
+        } catch {
+            guard case .url(let url) = source.storage, !url.isFileURL else {
+                throw error
+            }
+            return try await Self.download(url)
         }
     }
 

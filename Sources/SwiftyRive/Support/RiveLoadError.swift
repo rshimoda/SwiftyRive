@@ -18,6 +18,8 @@ public nonisolated enum RiveLoadError: Error {
     case stateMachineNotFound(name: String, artboard: String?)
     /// A view-model property's initial value could not be read.
     case propertyReadFailed(path: String, description: String)
+    /// A headless snapshot could not be rendered.
+    case snapshotUnavailable(reason: String)
 }
 
 extension RiveLoadError: LocalizedError {
@@ -45,6 +47,8 @@ extension RiveLoadError: LocalizedError {
             return "State machine '\(name)' was not found on \(location). Check the state machine name in the Rive editor."
         case .propertyReadFailed(let path, let description):
             return "Could not read the initial value of property '\(path)' (\(description))."
+        case .snapshotUnavailable(let reason):
+            return "Could not render a snapshot: \(reason)."
         }
     }
 }

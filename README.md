@@ -148,6 +148,19 @@ RiveView(document)
 
 Available fits: `.contain`, `.cover`, `.fill`, `.fitWidth`, `.fitHeight`, `.scaleDown`, and `.actualSize`, each with an optional `RiveAlignment` (`.topLeading` through `.bottomTrailing`, SwiftUI naming). `.layout(scale:)` is the exception: the Rive layout engine positions content itself, so alignment does not apply.
 
+## Snapshots
+
+`snapshot()` renders a single frame headlessly — no view, window, or animation — closing a long-standing rive-ios gap (rive-ios [#263](https://github.com/rive-app/rive-ios/issues/263), [#265](https://github.com/rive-app/rive-ios/issues/265)). The pose is the state machine's state after its initial advance, optionally moved forward in time; data binding is not applied, so the frame shows the file's default values. Ideal for snapshot tests, previews, posters, and thumbnails:
+
+```swift
+let poster = try await document.snapshot()                                  // authored size, 2x
+let thumb = try await document.snapshot(size: CGSize(width: 160, height: 90),
+                                        fit: .cover, at: 0.5)               // pose at t = 0.5s
+Image(decorative: poster, scale: 2)
+```
+
+The image is rendered at `scale` pixels per point (default 2, matching Retina). Requires a Metal device.
+
 ## Dynamic access (no schema)
 
 For tooling and inspection, when you do not know the file's shape up front, `makeDynamicInstance(artboard:viewModel:)` discovers every data-binding property at runtime (nested view models flattened into `"card/title"` paths) and exposes lenient, string-keyed access:
@@ -190,7 +203,7 @@ To run it on iOS (device or simulator), open `Examples/RiveInspectorApp/RiveInsp
 
 ## How it works
 
-SwiftyRive builds entirely on rive-ios's new Concurrency runtime, with one deliberate exception: the runtime exposes no artboard-size API, so `Sources/SwiftyRive/Internal/LegacyArtboardBounds.swift`, the **single** file touching legacy runtime types, lazily parses the same `.riv` bytes once through the legacy `RiveFile` API, reads every artboard's authored bounds in one pass, caches the result on the document, and releases the legacy objects. This shim will be deleted the moment rive-ios ships an artboard-size API in the Swift runtime ([#323](https://github.com/rive-app/rive-ios/issues/323)).
+SwiftyRive builds entirely on rive-ios's new Concurrency runtime, with one deliberate exception: the runtime exposes no artboard-size API, so `Sources/SwiftyRive/Internal/LegacyArtboardBounds.swift` lazily parses the same `.riv` bytes once through the legacy `RiveFile` API, reads every artboard's authored bounds in one pass, caches the result on the document, and releases the legacy objects. `snapshot()` is the second exception: the Concurrency runtime keeps its render-to-texture machinery internal, so `Sources/SwiftyRive/Internal/LegacySnapshotRenderer.swift` renders the frame through the legacy offscreen renderer under the same one-file isolation discipline. Both shims — the only files touching legacy runtime types — will be deleted the moment rive-ios ships the equivalent APIs in the Swift runtime ([#323](https://github.com/rive-app/rive-ios/issues/323), [#263](https://github.com/rive-app/rive-ios/issues/263)/[#265](https://github.com/rive-app/rive-ios/issues/265)).
 
 Everything else (loading, rendering, data binding, triggers) goes through the modern runtime. `RiveRuntime` is imported as `internal import` in every file, so the compiler guarantees no runtime type appears in SwiftyRive's public API.
 
