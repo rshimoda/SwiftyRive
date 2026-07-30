@@ -28,11 +28,11 @@ public nonisolated enum RiveDynamicPropertyKind: Equatable, Sendable {
     /// A kind the dynamic API cannot read or write (lists, images, artboards,
     /// unexpanded view models, ...). Carries a human-readable type name for
     /// display; such properties are discovery-only.
-    case unsupported(String)
+    case unsupported(typeName: String)
 }
 
 nonisolated extension RiveDynamicPropertyKind {
-    /// The matching internal transport kind, or `nil` for ``unsupported(_:)``.
+    /// The matching internal transport kind, or `nil` for ``unsupported(typeName:)``.
     var propertyKind: RivePropertyKind? {
         switch self {
         case .number: return .number
@@ -53,7 +53,7 @@ nonisolated extension RiveDynamicPropertyKind {
 @MainActor
 enum DynamicPropertyDiscovery {
     /// Maximum nesting depth walked before a nested view model is reported as
-    /// ``RiveDynamicPropertyKind/unsupported(_:)`` instead of expanded.
+    /// ``RiveDynamicPropertyKind/unsupported(typeName:)`` instead of expanded.
     static let maxDepth = 8
 
     /// Resolves the root view model name: an explicit `viewModel`, or the
@@ -101,7 +101,7 @@ enum DynamicPropertyDiscovery {
     ///
     /// Cyclic view-model references are cut per path branch: a view model
     /// already expanded on the current branch — or one nested deeper than
-    /// ``maxDepth`` — is reported as an `unsupported("view model")` leaf.
+    /// ``maxDepth`` — is reported as an `unsupported(typeName: "view model")` leaf.
     static func discover(
         rootViewModel: String,
         in document: RiveDocument
@@ -155,7 +155,7 @@ enum DynamicPropertyDiscovery {
                     // The nested view model's name is reported in `metaData`.
                     let nested = property.metaData
                     guard depth < maxDepth, nested.isEmpty == false, visited.contains(nested) == false else {
-                        discovered.append(RiveDynamicProperty(path: path, kind: .unsupported("view model")))
+                        discovered.append(RiveDynamicProperty(path: path, kind: .unsupported(typeName: "view model")))
                         continue
                     }
                     try await walk(
@@ -167,7 +167,7 @@ enum DynamicPropertyDiscovery {
                 default:
                     discovered.append(RiveDynamicProperty(
                         path: path,
-                        kind: .unsupported(SchemaValidator.describe(property.type))
+                        kind: .unsupported(typeName: SchemaValidator.describe(property.type))
                     ))
                 }
             }

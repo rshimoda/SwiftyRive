@@ -186,7 +186,7 @@ private struct PropertyRow: View {
             .labelsHidden()
         case .color:
             ColorPicker(selection: Binding(
-                get: { instance[color: property.path]?.color ?? .black },
+                get: { instance[color: property.path].map(Color.init(_:)) ?? .black },
                 set: { instance[color: property.path] = RiveColor($0) }
             )) { EmptyView() }
                 .labelsHidden()

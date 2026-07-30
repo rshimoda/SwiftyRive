@@ -25,8 +25,8 @@ public actor RiveEngine {
     public init() {}
 
     /// The sources currently held in the cache (including in-flight loads),
-    /// in no particular order. Intended for introspection and tests.
-    public var cachedSources: [RiveSource] {
+    /// in no particular order. Test hook for verifying cache contents.
+    var cachedSources: [RiveSource] {
         Array(documents.keys)
     }
 

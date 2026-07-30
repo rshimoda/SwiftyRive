@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The loading phase of an ``AsyncRiveView``.
-public enum RivePhase {
+public enum AsyncRivePhase {
     /// The document is still loading.
     case loading
     /// The document loaded; the associated ``RiveView`` renders it.
@@ -28,16 +28,16 @@ public struct AsyncRiveView<Content: View>: View {
     private let source: RiveSource
     private let artboardName: String?
     private let stateMachineName: String?
-    private let content: (RivePhase) -> Content
+    private let content: (AsyncRivePhase) -> Content
 
-    @State private var phase: RivePhase = .loading
+    @State private var phase: AsyncRivePhase = .loading
 
     /// The load that produced the current terminal phase. On reappearance the
     /// task re-fires with an unchanged ``LoadID``; a matching successful phase
     /// is kept as-is instead of flashing the placeholder and reloading.
     @State private var phaseID: LoadID?
 
-    /// Creates a view that loads `source` and hands the current ``RivePhase`` to `content`.
+    /// Creates a view that loads `source` and hands the current ``AsyncRivePhase`` to `content`.
     ///
     /// - Parameters:
     ///   - source: Where the `.riv` bytes come from.
@@ -48,7 +48,7 @@ public struct AsyncRiveView<Content: View>: View {
         source: RiveSource,
         artboard: String? = nil,
         stateMachine: String? = nil,
-        @ViewBuilder content: @escaping (RivePhase) -> Content
+        @ViewBuilder content: @escaping (AsyncRivePhase) -> Content
     ) {
         self.source = source
         self.artboardName = artboard

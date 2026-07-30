@@ -7,7 +7,7 @@ import Testing
 /// `data_binding_test.riv` comes from the MIT-licensed rive-ios repository
 /// (Tests/Assets, tag 6.22.0). Its root view model "Test" carries every
 /// supported property kind plus nested view models "Nested" and "Default";
-/// dump the full tree with `RiveDiagnostics.dumpViewModels(of:)`.
+/// dump the full tree with `RiveDocument.dumpViewModels()`.
 enum Fixtures {
     static func data(named name: String) throws -> Data {
         guard let url = Bundle.module.url(forResource: name, withExtension: "riv", subdirectory: "Fixtures") else {

@@ -76,7 +76,7 @@ public nonisolated struct RiveColor: RivePropertyValue, Hashable, Sendable {
     #endif
 
     /// The color as a SwiftUI `Color` (sRGB).
-    public var color: SwiftUI.Color {
+    public var swiftUIColor: SwiftUI.Color {
         SwiftUI.Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 
@@ -88,6 +88,16 @@ public nonisolated struct RiveColor: RivePropertyValue, Hashable, Sendable {
             return value == .infinity ? 1 : 0
         }
         return min(max(value, 0), 1)
+    }
+}
+
+extension SwiftUI.Color {
+    /// Creates a SwiftUI `Color` from a ``RiveColor`` (sRGB).
+    ///
+    /// The idiomatic conversion direction, mirroring `Color(uiColor:)`-style
+    /// initializers: `Color(instance[\.tint])`.
+    public init(_ riveColor: RiveColor) {
+        self = riveColor.swiftUIColor
     }
 }
 

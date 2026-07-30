@@ -1,8 +1,7 @@
 import Foundation
 internal import RiveRuntime
 
-/// Debug helpers for inspecting a file's data-binding metadata.
-public enum RiveDiagnostics {
+extension RiveDocument {
     /// Renders the file's full data-binding tree — view models with their
     /// instances and typed properties, plus all enum definitions — as a
     /// multi-line string, and logs it.
@@ -21,8 +20,7 @@ public enum RiveDiagnostics {
     ///
     /// Read failures are embedded in the output instead of thrown, so the dump
     /// always produces something usable.
-    public static func dumpViewModels(of document: RiveDocument) async -> String {
-        let file = document.file
+    public func dumpViewModels() async -> String {
         var lines: [String] = []
 
         let viewModelNames: [String]
@@ -72,7 +70,7 @@ public enum RiveDiagnostics {
         }
 
         let dump = lines.joined(separator: "\n")
-        Log.schema.info("Data-binding tree for \(document.source.debugName, privacy: .public):\n\(dump, privacy: .public)")
+        Log.schema.info("Data-binding tree for \(self.source.debugName, privacy: .public):\n\(dump, privacy: .public)")
         return dump
     }
 }

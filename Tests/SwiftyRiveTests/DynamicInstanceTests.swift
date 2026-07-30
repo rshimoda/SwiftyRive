@@ -26,8 +26,8 @@ struct DynamicInstanceTests {
         #expect(kindsByPath["SecondNested/DeeperNested/String"] == .string)
 
         // List and image properties surface as display-only unsupported kinds.
-        #expect(kindsByPath["List"] == .unsupported("list"))
-        #expect(kindsByPath["Image"] == .unsupported("image"))
+        #expect(kindsByPath["List"] == .unsupported(typeName: "list"))
+        #expect(kindsByPath["Image"] == .unsupported(typeName: "image"))
     }
 
     @Test func discoveryWorksFromAnExplicitViewModel() async throws {

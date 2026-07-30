@@ -7,7 +7,7 @@ public nonisolated enum RiveLoadError: Error {
     /// The bundle a ``RiveSource/bundle(_:in:)`` source referred to no longer exists on disk.
     case bundleUnavailable(bundleURL: URL)
     /// A remote `.riv` file could not be downloaded.
-    case downloadFailed(url: String)
+    case downloadFailed(url: URL)
     /// The file bytes could not be parsed as Rive content.
     case parseFailed(description: String)
     /// Rendering infrastructure (a Metal device) is unavailable on this machine.
@@ -30,7 +30,7 @@ extension RiveLoadError: LocalizedError {
         case .bundleUnavailable(let bundleURL):
             return "The bundle at \(bundleURL.path) is unavailable. Recreate the RiveSource with a bundle that exists at load time."
         case .downloadFailed(let url):
-            return "Could not download the Rive file from \(url). Check the URL and network connectivity."
+            return "Could not download the Rive file from \(url.absoluteString). Check the URL and network connectivity."
         case .parseFailed(let description):
             return "The data could not be parsed as a Rive file (\(description)). Re-export the file from the Rive editor and make sure the bytes are an unmodified .riv file."
         case .renderingUnavailable:

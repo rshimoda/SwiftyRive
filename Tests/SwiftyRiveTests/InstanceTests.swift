@@ -234,7 +234,7 @@ struct InstanceTests {
 
     @Test func diagnosticsDumpContainsFullTree() async throws {
         let document = try await Fixtures.dataBindingDocument()
-        let dump = await RiveDiagnostics.dumpViewModels(of: document)
+        let dump = await document.dumpViewModels()
 
         #expect(dump.contains("Test"))
         #expect(dump.contains("Nested"))

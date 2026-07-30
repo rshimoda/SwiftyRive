@@ -89,7 +89,7 @@ Not sure which paths exist in a file you did not author? Dump its
 data-binding tree:
 
 ```swift
-print(await RiveDiagnostics.dumpViewModels(of: document))
+print(await document.dumpViewModels())
 ```
 
 ## Read, write, bind

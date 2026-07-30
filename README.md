@@ -183,7 +183,7 @@ Everything else (loading, rendering, data binding, triggers) goes through the mo
 
 Helpful extras:
 
-- `RiveDiagnostics.dumpViewModels(of: document)` prints a file's full data-binding tree (view models, properties, enums). Handy when writing a schema for a file you did not author.
+- `document.dumpViewModels()` prints a file's full data-binding tree (view models, properties, enums). Handy when writing a schema for a file you did not author.
 - Errors are `LocalizedError` with actionable messages that list the available artboards / properties / cases when a name does not match.
 
 ## Documentation

@@ -44,7 +44,7 @@ binding between your SwiftUI state and the animation's view model.
 
 - ``RiveView``
 - ``AsyncRiveView``
-- ``RivePhase``
+- ``AsyncRivePhase``
 - ``RiveNativeView``
 
 ### Typed schemas
@@ -69,4 +69,4 @@ binding between your SwiftUI state and the animation's view model.
 
 ### Diagnostics
 
-- ``RiveDiagnostics``
+- ``RiveDocument/dumpViewModels()``

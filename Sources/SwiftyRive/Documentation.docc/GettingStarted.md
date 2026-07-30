@@ -21,7 +21,7 @@ let inMemory = RiveSource.data(bytes, identifier: "robot")
 
 ## The simplest path: AsyncRiveView
 
-``AsyncRiveView`` loads a source and hands you the current ``RivePhase``,
+``AsyncRiveView`` loads a source and hands you the current ``AsyncRivePhase``,
 `AsyncImage`-style:
 
 ```swift

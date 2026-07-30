@@ -63,7 +63,7 @@ public final class RiveDocument {
             if case RiveRuntime.FileError.cancelled = error {
                 throw CancellationError()
             }
-            throw RiveLoadError(runtimeError: error)
+            throw RiveLoadError(runtimeError: error, source: source)
         }
 
         var artboardNames: [String] = []
@@ -183,7 +183,7 @@ public final class RiveDocument {
             guard url.isFileURL else {
                 // Unreachable in practice: init retains remote bytes until the
                 // catalog is built, and the catalog makes this call moot.
-                throw RiveLoadError.downloadFailed(url: url.absoluteString)
+                throw RiveLoadError.downloadFailed(url: url)
             }
             guard let data = try? Data(contentsOf: url) else {
                 throw RiveLoadError.fileNotFound(resource: url.deletingPathExtension().lastPathComponent)
@@ -201,13 +201,13 @@ public final class RiveDocument {
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         } catch {
-            throw RiveLoadError.downloadFailed(url: url.absoluteString)
+            throw RiveLoadError.downloadFailed(url: url)
         }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw RiveLoadError.downloadFailed(url: url.absoluteString)
+            throw RiveLoadError.downloadFailed(url: url)
         }
         guard !data.isEmpty else {
-            throw RiveLoadError.downloadFailed(url: url.absoluteString)
+            throw RiveLoadError.downloadFailed(url: url)
         }
         return data
     }
@@ -319,7 +319,7 @@ public final class RiveDocument {
 
 extension RiveLoadError {
     /// Maps a runtime loading error onto the package's public error type.
-    init(runtimeError: any Error) {
+    init(runtimeError: any Error, source: RiveSource) {
         guard let fileError = runtimeError as? RiveRuntime.FileError else {
             self = .parseFailed(description: runtimeError.localizedDescription)
             return
@@ -327,7 +327,17 @@ extension RiveLoadError {
         switch fileError {
         case .missingFile(let name):
             self = .fileNotFound(resource: name)
-        case .missingData(let url):
+        case .missingData(let urlString):
+            // The runtime reports the failing URL as a string. Prefer the URL
+            // the source already carries; fall back to parsing the runtime's
+            // string, then to a file URL of that string so the case always
+            // carries *something* pointing at the failing location.
+            let url: URL
+            if case .url(let sourceURL) = source.storage {
+                url = sourceURL
+            } else {
+                url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
+            }
             self = .downloadFailed(url: url)
         default:
             self = .parseFailed(description: fileError.localizedDescription)
