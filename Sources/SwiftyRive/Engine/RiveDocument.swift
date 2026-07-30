@@ -18,6 +18,10 @@ public final class RiveDocument {
     /// The underlying runtime file. Internal so runtime types never leak into public API.
     let file: RiveRuntime.File
 
+    /// The session used to download remote sources, injected by the loading
+    /// ``RiveEngine`` (its `urlSession`). Reused for re-downloads.
+    private let urlSession: URLSession
+
     /// Bytes retained for remote URL sources only, so the bounds shim never
     /// re-downloads. Dropped once the bounds catalog is built.
     private var retainedRemoteBytes: Data?
@@ -31,8 +35,9 @@ public final class RiveDocument {
     /// never exceed 1.
     private(set) var legacyBoundsParseCount = 0
 
-    init(source: RiveSource) async throws {
+    init(source: RiveSource, urlSession: URLSession = .shared) async throws {
         let worker = try SharedRiveWorker.shared()
+        self.urlSession = urlSession
 
         let runtimeSource: RiveRuntime.Source
         switch source.storage {
@@ -44,7 +49,7 @@ public final class RiveDocument {
         case .url(let url) where !url.isFileURL:
             // Download here (not inside the runtime) so the bytes stay
             // available for the bounds shim without a second download.
-            let data = try await Self.download(url)
+            let data = try await Self.download(url, using: urlSession)
             retainedRemoteBytes = data
             runtimeSource = .data(data)
         case .url(let url):
@@ -204,16 +209,17 @@ public final class RiveDocument {
             guard case .url(let url) = source.storage, !url.isFileURL else {
                 throw error
             }
-            return try await Self.download(url)
+            return try await Self.download(url, using: urlSession)
         }
     }
 
-    /// Downloads a remote `.riv` once, mapping failures onto ``RiveLoadError``.
-    private static func download(_ url: URL) async throws -> Data {
+    /// Downloads a remote `.riv` once through `session`, mapping failures onto
+    /// ``RiveLoadError``.
+    private static func download(_ url: URL, using session: URLSession) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(from: url)
+            (data, response) = try await session.data(from: url)
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         } catch {

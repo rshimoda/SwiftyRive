@@ -201,6 +201,23 @@ It auto-discovers the file's artboards and data-binding properties and renders l
 
 To run it on iOS (device or simulator), open `Examples/RiveInspectorApp/RiveInspector.xcodeproj` — a multiplatform Xcode target that shares the same sources; files arrive via the file importer or drag & drop.
 
+## Integration notes
+
+Honest fine print for adopters:
+
+- **Toolchain floors.** Building requires an Xcode whose toolchain speaks Swift 6.2 — older Xcode versions cannot even resolve the package (`swift-tools-version: 6.2`). The iOS 17 / macOS 14 floors come from `@Observable`.
+- **Coexisting with RiveRuntime.** During a gradual migration your app will link both runtimes — that works, but a file that does `import SwiftyRive` and `import RiveRuntime` hits name ambiguity: legacy rive-ios also declares `RiveView`, `RiveFit`, and `RiveAlignment`. Qualify (`SwiftyRive.RiveView`, `SwiftyRive.RiveFit`) or keep the two imports in separate files. Files importing only SwiftyRive are unaffected.
+- **Schemas under `defaultIsolation(MainActor.self)`.** If your module defaults to main-actor isolation, declare schemas and enums `nonisolated` (`RiveSchema` is a nonisolated `Sendable` protocol, so a main-actor-isolated struct cannot satisfy it):
+
+  ```swift
+  nonisolated struct RobotSchema: RiveSchema { ... }
+  ```
+
+  Generated schemas (`generateSchemaSource`) already emit `nonisolated`.
+- **rive-ios version policy.** We pin `from: 6.22.0`, so SwiftPM may resolve any newer 6.x. rive-ios has shipped source-breaking changes in minor releases before; a scheduled [upstream workflow](.github/workflows/upstream.yml) tests SwiftyRive against the newest 6.x weekly. If a future rive-ios minor still breaks your build, pin the last known-good rive-ios version in your app's own dependencies (your app's pin wins resolution) and please [file an issue](https://github.com/rshimoda/SwiftyRive/issues).
+- **App extensions and widgets.** Upstream rive-ios has open issues around extension contexts (rive-ios [#297](https://github.com/rive-app/rive-ios/issues/297), [#241](https://github.com/rive-app/rive-ios/issues/241), [#271](https://github.com/rive-app/rive-ios/issues/271)), and Metal rendering inside memory-limited extensions is untested territory for SwiftyRive. Expect to validate this yourself if you try.
+- **Other platforms.** tvOS and watchOS are unsupported (the new runtime is unavailable on tvOS, rive-ios [#425](https://github.com/rive-app/rive-ios/issues/425)); visionOS and Mac Catalyst are untested.
+
 ## How it works
 
 SwiftyRive builds entirely on rive-ios's new Concurrency runtime, with one deliberate exception: the runtime exposes no artboard-size API, so `Sources/SwiftyRive/Internal/LegacyArtboardBounds.swift` lazily parses the same `.riv` bytes once through the legacy `RiveFile` API, reads every artboard's authored bounds in one pass, caches the result on the document, and releases the legacy objects. `snapshot()` is the second exception: the Concurrency runtime keeps its render-to-texture machinery internal, so `Sources/SwiftyRive/Internal/LegacySnapshotRenderer.swift` renders the frame through the legacy offscreen renderer under the same one-file isolation discipline. Both shims — the only files touching legacy runtime types — will be deleted the moment rive-ios ships the equivalent APIs in the Swift runtime ([#323](https://github.com/rive-app/rive-ios/issues/323), [#263](https://github.com/rive-app/rive-ios/issues/263)/[#265](https://github.com/rive-app/rive-ios/issues/265)).

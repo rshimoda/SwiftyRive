@@ -1,0 +1,30 @@
+name: Upstream rive-ios
+
+# Early warning: build and test against the newest rive-ios our declared
+# range allows (6.x), so a breaking minor release surfaces here before
+# adopters hit it. Failures notify the repo owner via default GitHub
+# workflow-failure emails.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  test-latest:
+    name: Build and test against latest rive-ios
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select latest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+      - name: Swift version
+        run: swift --version
+      - name: Update rive-ios to the newest allowed version
+        run: swift package update rive-ios
+      - name: Show resolved rive-ios version
+        run: grep -A 4 'rive-ios' Package.resolved
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test

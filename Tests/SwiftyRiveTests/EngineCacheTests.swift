@@ -196,6 +196,126 @@ struct EngineCacheTests {
         #expect(failures[invalid] is RiveLoadError)
         #expect(await engine.cachedSources.isEmpty)
     }
+
+    // MARK: - Memory-pressure eviction
+
+    @Test func evictCompletedDocumentsEmptiesTheCacheAndKeepsDocumentsAlive() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.evict-completed.riv")
+
+        let document = try await engine.document(for: source)
+        await engine.evictCompletedDocuments()
+        #expect(await engine.cachedSources.isEmpty)
+
+        // The evicted document object keeps working (views retain documents
+        // directly); only a re-load pays a fresh parse.
+        #expect(document.artboardNames.isEmpty == false)
+        let reloaded = try await engine.document(for: source)
+        #expect(reloaded !== document)
+        #expect(await engine.loadCount == 2)
+    }
+
+    @Test func evictCompletedDocumentsDoesNotCancelInFlightLoads() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.evict-inflight-kept.riv")
+
+        let loader = Task {
+            try await engine.document(for: source)
+        }
+        while await engine.cachedSources.isEmpty {
+            await Task.yield()
+        }
+        await engine.evictCompletedDocuments()
+
+        // Whether or not the load managed to finish before the eviction, the
+        // caller gets its document from the one load it started: an in-flight
+        // entry is never cancelled (unlike removeDocument(for:), which forces
+        // a retry and a second load).
+        let document = try await loader.value
+        #expect(document.artboardNames.isEmpty == false)
+        #expect(await engine.loadCount == 1)
+    }
+
+    @Test func memoryPressureEvictsCompletedEntries() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.pressure.riv")
+
+        _ = try await engine.document(for: source)
+        #expect(await engine.isAutomaticEvictionEnabled)
+        await engine.handleMemoryPressure()
+        #expect(await engine.cachedSources.isEmpty)
+    }
+
+    @Test func disablingAutomaticEvictionMakesPressureANoOp() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.pressure-optout.riv")
+
+        _ = try await engine.document(for: source)
+        await engine.setAutomaticEvictionEnabled(false)
+        #expect(await engine.isAutomaticEvictionEnabled == false)
+        await engine.handleMemoryPressure()
+        #expect(await engine.cachedSources == [source])
+
+        // Re-enabling restores the default behavior.
+        await engine.setAutomaticEvictionEnabled(true)
+        await engine.handleMemoryPressure()
+        #expect(await engine.cachedSources.isEmpty)
+    }
+
+    // MARK: - URLSession injection
+
+    @Test func remoteLoadGoesThroughTheInjectedSession() async throws {
+        FixtureServingURLProtocol.setStubbedData(try Fixtures.data(named: "data_binding_test"))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FixtureServingURLProtocol.self]
+        let engine = RiveEngine(urlSession: URLSession(configuration: configuration))
+        // The .invalid TLD guarantees no real network traffic even on a miss.
+        let url = try #require(URL(string: "https://swifty-rive.stub.invalid/data_binding_test.riv"))
+
+        let requestsBefore = FixtureServingURLProtocol.requestCount
+        let document = try await engine.document(for: .url(url))
+
+        #expect(document.artboardNames.isEmpty == false)
+        #expect(FixtureServingURLProtocol.requestCount > requestsBefore)
+    }
+}
+
+/// A `URLProtocol` that serves pre-registered bytes for every request, so
+/// remote-source tests exercise the engine's injected `URLSession` without
+/// touching the network.
+nonisolated final class FixtureServingURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var stubbedData = Data()
+    nonisolated(unsafe) private static var _requestCount = 0
+
+    static func setStubbedData(_ data: Data) {
+        lock.withLock { stubbedData = data }
+    }
+
+    static var requestCount: Int {
+        lock.withLock { _requestCount }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let data = Self.lock.withLock {
+            Self._requestCount += 1
+            return Self.stubbedData
+        }
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 /// Headless robustness tests for ``RiveRenderHost``: rapid configuration

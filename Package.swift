@@ -21,6 +21,9 @@ let package = Package(
             dependencies: [
                 .product(name: "RiveRuntime", package: "rive-ios"),
             ],
+            resources: [
+                .process("PrivacyInfo.xcprivacy"),
+            ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
                 .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
