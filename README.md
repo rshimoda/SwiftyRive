@@ -164,6 +164,17 @@ RiveView(instance)                        // renders just like a typed instance
 
 Prefer typed schemas in application code: they prove every path at load time. The dynamic API trades that proof for discovery.
 
+### Generate a schema
+
+`generateSchemaSource(named:artboard:viewModel:)` turns the discovered properties into ready-to-paste Swift source — a `RiveSchema` struct plus a `RiveEnum` per file enum, with sanitized, de-duplicated names and unsupported properties listed in a comment:
+
+```swift
+let source = try await document.generateSchemaSource(named: "RobotSchema")
+print(source)   // paste into your project, then check it with document.validate(_:artboard:)
+```
+
+The RiveInspector demo has a toolbar button that copies the generated schema for the loaded file straight to the clipboard.
+
 ## Try it
 
 The repository ships a tiny macOS demo app built on the dynamic API. It inspects any `.riv` file:

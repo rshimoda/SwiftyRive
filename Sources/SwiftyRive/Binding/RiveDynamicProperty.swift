@@ -96,6 +96,15 @@ enum DynamicPropertyDiscovery {
         }
     }
 
+    /// A discovery walk's full result: the flattened properties plus, per
+    /// enum-property path, the file's enum type name — which the public
+    /// ``RiveDynamicPropertyKind/enum(cases:)`` does not carry but schema
+    /// generation needs to name generated Swift enums.
+    struct DiscoveredTree {
+        var properties: [RiveDynamicProperty] = []
+        var enumNamesByPath: [String: String] = [:]
+    }
+
     /// Discovers every property reachable from `rootViewModel`, recursing into
     /// nested view models (depth-first, file order preserved).
     ///
@@ -106,6 +115,14 @@ enum DynamicPropertyDiscovery {
         rootViewModel: String,
         in document: RiveDocument
     ) async throws -> [RiveDynamicProperty] {
+        try await discoverTree(rootViewModel: rootViewModel, in: document).properties
+    }
+
+    /// ``discover(rootViewModel:in:)`` plus the per-path enum names.
+    static func discoverTree(
+        rootViewModel: String,
+        in document: RiveDocument
+    ) async throws -> DiscoveredTree {
         let file = document.file
 
         let enumCasesByName: [String: [String]]
@@ -131,31 +148,33 @@ enum DynamicPropertyDiscovery {
             return properties
         }
 
-        var discovered: [RiveDynamicProperty] = []
+        var discovered = DiscoveredTree()
         func walk(viewModel: String, prefix: String, visited: [String], depth: Int) async throws {
             for property in try await properties(of: viewModel) {
                 let path = prefix.isEmpty ? property.name : "\(prefix)/\(property.name)"
                 switch property.type {
                 case .number:
-                    discovered.append(RiveDynamicProperty(path: path, kind: .number))
+                    discovered.properties.append(RiveDynamicProperty(path: path, kind: .number))
                 case .boolean:
-                    discovered.append(RiveDynamicProperty(path: path, kind: .bool))
+                    discovered.properties.append(RiveDynamicProperty(path: path, kind: .bool))
                 case .string:
-                    discovered.append(RiveDynamicProperty(path: path, kind: .string))
+                    discovered.properties.append(RiveDynamicProperty(path: path, kind: .string))
                 case .color:
-                    discovered.append(RiveDynamicProperty(path: path, kind: .color))
+                    discovered.properties.append(RiveDynamicProperty(path: path, kind: .color))
                 case .enum:
-                    discovered.append(RiveDynamicProperty(
+                    // The enum's type name is reported in `metaData`.
+                    discovered.properties.append(RiveDynamicProperty(
                         path: path,
                         kind: .enum(cases: enumCasesByName[property.metaData] ?? [])
                     ))
+                    discovered.enumNamesByPath[path] = property.metaData
                 case .trigger:
-                    discovered.append(RiveDynamicProperty(path: path, kind: .trigger))
+                    discovered.properties.append(RiveDynamicProperty(path: path, kind: .trigger))
                 case .viewModel:
                     // The nested view model's name is reported in `metaData`.
                     let nested = property.metaData
                     guard depth < maxDepth, nested.isEmpty == false, visited.contains(nested) == false else {
-                        discovered.append(RiveDynamicProperty(path: path, kind: .unsupported(typeName: "view model")))
+                        discovered.properties.append(RiveDynamicProperty(path: path, kind: .unsupported(typeName: "view model")))
                         continue
                     }
                     try await walk(
@@ -165,7 +184,7 @@ enum DynamicPropertyDiscovery {
                         depth: depth + 1
                     )
                 default:
-                    discovered.append(RiveDynamicProperty(
+                    discovered.properties.append(RiveDynamicProperty(
                         path: path,
                         kind: .unsupported(typeName: SchemaValidator.describe(property.type))
                     ))

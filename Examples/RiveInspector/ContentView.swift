@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import SwiftyRive
 import UniformTypeIdentifiers
@@ -24,6 +25,7 @@ struct ContentView: View {
     @State private var errorText: String?
     @State private var bindingNote: String?
     @State private var isImporterPresented = false
+    @State private var didCopySchema = false
 
     var body: some View {
         Group {
@@ -61,6 +63,38 @@ struct ContentView: View {
         .task {
             if CommandLine.arguments.count > 1 {
                 load(URL(fileURLWithPath: CommandLine.arguments[1]))
+            }
+        }
+        .toolbar {
+            if let document {
+                ToolbarItem {
+                    Button {
+                        copySchemaSource(of: document)
+                    } label: {
+                        Label(
+                            "Copy Swift Schema",
+                            systemImage: didCopySchema ? "checkmark" : "doc.on.doc"
+                        )
+                    }
+                    .help("Copy a generated RiveSchema for this file to the clipboard")
+                }
+            }
+        }
+    }
+
+    /// Generates a schema for the selected artboard and puts the source on the
+    /// general pasteboard, briefly swapping the icon to a checkmark.
+    private func copySchemaSource(of document: RiveDocument) {
+        Task {
+            do {
+                let source = try await document.generateSchemaSource(artboard: artboard)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(source, forType: .string)
+                didCopySchema = true
+                try? await Task.sleep(for: .seconds(1.5))
+                didCopySchema = false
+            } catch {
+                errorText = error.localizedDescription
             }
         }
     }
