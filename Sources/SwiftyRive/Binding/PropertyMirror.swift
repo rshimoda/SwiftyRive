@@ -1,5 +1,23 @@
 import Foundation
+import Observation
 internal import RiveRuntime
+
+/// One observable cell of an instance's local mirror.
+///
+/// Instances keep their mirror as an `@ObservationIgnored` dictionary of
+/// slots (the key set is fixed at creation, so the dictionary itself never
+/// needs tracking) and route all reads/writes through `box`. That makes
+/// observation per-key: a view reading one property re-renders only when
+/// *that* property changes, not on every animating property each frame.
+@Observable
+@MainActor
+final class MirrorSlot {
+    var box: PropertyBox
+
+    init(_ box: PropertyBox) {
+        self.box = box
+    }
+}
 
 /// A type-erased property value held in a ``RiveInstance``'s local mirror.
 ///

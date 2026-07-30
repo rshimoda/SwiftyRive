@@ -131,13 +131,14 @@ struct EngineCacheTests {
 struct RenderHostSwitchingTests {
     private func configuration(
         document: RiveDocument,
-        artboard: String?
+        artboard: String?,
+        fit: RiveFit = .contain
     ) -> RiveRenderHost.Configuration {
         RiveRenderHost.Configuration(
             document: document,
             artboardName: artboard,
             stateMachineName: nil,
-            fit: .contain,
+            fit: fit,
             boundViewModelInstance: nil
         )
     }
@@ -189,6 +190,40 @@ struct RenderHostSwitchingTests {
 
         #expect(host.hasRive)
         #expect(host.error == nil)
+    }
+
+    @Test func cancelledRebuildIsNotSwallowedByAFitOnlyReapply() async throws {
+        let document = try await Fixtures.dataBindingDocument()
+        let artboardName = try #require(document.artboardNames.first)
+        let host = RiveRenderHost()
+
+        // Scene A commits.
+        await host.apply(configuration(document: document, artboard: nil))
+        #expect(host.hasRive)
+        #expect(host.committedArtboardName == nil)
+
+        // Scene B's apply is cancelled mid-flight (mimics `.task(id:)` being
+        // restarted by a fit-only environment change, which is part of the
+        // task identity). Yield until the apply has recorded B as the
+        // requested configuration so the cancel lands after that point.
+        let applyB = Task {
+            await host.apply(configuration(document: document, artboard: artboardName))
+        }
+        while host.appliedArtboardName != artboardName {
+            await Task.yield()
+        }
+        applyB.cancel()
+        await applyB.value
+
+        // Re-applying B with a different fit must notice that B never
+        // committed and rebuild it — a fast path comparing only the last
+        // *requested* configuration would just set the fit on A's stale
+        // `Rive` and scene B would never appear.
+        await host.apply(configuration(document: document, artboard: artboardName, fit: .cover))
+
+        #expect(host.hasRive)
+        #expect(host.error == nil)
+        #expect(host.committedArtboardName == artboardName)
     }
 
     @Test func repeatedMountAndTeardownDoesNotCrash() async throws {

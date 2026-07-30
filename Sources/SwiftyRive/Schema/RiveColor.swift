@@ -81,7 +81,13 @@ public nonisolated struct RiveColor: RivePropertyValue, Hashable, Sendable {
     }
 
     private static func clamped(_ value: Double) -> Double {
-        min(max(value, 0), 1)
+        // `max(.nan, 0)` propagates NaN, and a non-finite component would trap
+        // later in `UInt8((value * 255).rounded())`. Map NaN and -inf to 0 and
+        // +inf to 1 so every component is a plain 0...1 value.
+        guard value.isFinite else {
+            return value == .infinity ? 1 : 0
+        }
+        return min(max(value, 0), 1)
     }
 }
 

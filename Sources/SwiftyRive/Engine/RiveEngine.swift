@@ -4,9 +4,10 @@ internal import RiveRuntime
 
 /// Loads and caches parsed Rive documents.
 ///
-/// The engine owns a single shared render `Worker` (created lazily on first load)
-/// and a cache of documents keyed by ``RiveSource``. Concurrent requests for the
-/// same source coalesce into one load.
+/// The engine holds a cache of documents keyed by ``RiveSource``; concurrent
+/// requests for the same source coalesce into one load. Documents render
+/// through a single process-global `Worker` (see `SharedRiveWorker`, created
+/// lazily on first load) that is shared by every engine instance.
 public actor RiveEngine {
     /// The shared engine used by ``RiveDocument/load(_:)`` and ``AsyncRiveView``.
     nonisolated public static let shared = RiveEngine()
@@ -17,7 +18,8 @@ public actor RiveEngine {
     /// that concurrent requests coalesce into a single load.
     private(set) var loadCount = 0
 
-    /// Creates an empty engine with its own cache and worker lifetime.
+    /// Creates an empty engine with its own document cache. (The render
+    /// worker is process-global and shared by all engines.)
     ///
     /// Most callers should use ``shared`` so documents are cached process-wide.
     public init() {}
@@ -34,12 +36,18 @@ public actor RiveEngine {
     /// the same underlying load. Failed loads are evicted so a later call retries.
     /// If ``removeDocument(for:)`` cancels an in-flight load this call was
     /// awaiting, the call transparently retries with a fresh load; only the
-    /// caller's *own* cancellation surfaces as `CancellationError`.
+    /// caller's *own* cancellation surfaces as `CancellationError` — including
+    /// when the caller was cancelled while the load itself succeeded, so a
+    /// cancelled caller never receives (and acts on) a stale success.
     public func document(for source: RiveSource) async throws -> RiveDocument {
         while true {
             if let existing = documents[source] {
                 do {
-                    return try await existing.value
+                    let document = try await existing.value
+                    // A cancelled caller must not consume a success meant for
+                    // newer requests (the doc contract above).
+                    try Task.checkCancellation()
+                    return document
                 } catch is CancellationError {
                     // Propagate the caller's own cancellation; otherwise the
                     // entry was evicted mid-load, so clear it and retry.
@@ -48,6 +56,14 @@ public actor RiveEngine {
                         documents[source] = nil
                     }
                     continue
+                } catch {
+                    // Evict before rethrowing: actor reentrancy means this
+                    // awaiter can resume before (or instead of) the creator's
+                    // eviction, and a retry must not re-hit a cached failure.
+                    if documents[source] == existing {
+                        documents[source] = nil
+                    }
+                    throw error
                 }
             }
 
@@ -59,18 +75,25 @@ public actor RiveEngine {
             documents[source] = task
 
             do {
-                return try await task.value
+                let document = try await task.value
+                // Surface the caller's own cancellation even on success (the
+                // doc contract above); the cached entry stays valid for others.
+                try Task.checkCancellation()
+                return document
+            } catch is CancellationError {
+                // Either the caller itself was cancelled (surface it, keeping
+                // a successful load cached), or the load was evicted mid-flight
+                // by removeDocument (evict and retry).
+                try Task.checkCancellation()
+                if documents[source] == task {
+                    documents[source] = nil
+                }
+                continue
             } catch {
                 // Only evict the task we created; a concurrent reload may have
                 // replaced it with a fresh one.
                 if documents[source] == task {
                     documents[source] = nil
-                }
-                if error is CancellationError {
-                    // Evicted mid-load by removeDocument; retry unless the
-                    // caller itself was cancelled.
-                    try Task.checkCancellation()
-                    continue
                 }
                 Log.engine.error("Failed to load \(source.debugName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 throw error

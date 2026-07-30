@@ -63,17 +63,25 @@ nonisolated extension RiveSchema {
         var keys: [DiscoveredKey] = []
         var issues: [RiveSchemaError.Issue] = []
 
-        for child in Mirror(reflecting: Self()).children {
-            guard let key = child.value as? any AnySchemaKey else { continue }
-            let label = child.label ?? key.path
-            guard let declaration = key.declaration else {
-                issues.append(.unsupportedValueType(
-                    label: label,
-                    typeName: String(describing: type(of: child.value))
-                ))
-                continue
+        // Walk the whole superclass chain: a `Mirror`'s `children` cover only
+        // the properties declared at that level, so a class-hierarchy schema
+        // would otherwise silently drop inherited keys (and later trap on the
+        // instance subscript).
+        var mirror: Mirror? = Mirror(reflecting: Self())
+        while let current = mirror {
+            for child in current.children {
+                guard let key = child.value as? any AnySchemaKey else { continue }
+                let label = child.label ?? key.path
+                guard let declaration = key.declaration else {
+                    issues.append(.unsupportedValueType(
+                        label: label,
+                        typeName: String(describing: type(of: child.value))
+                    ))
+                    continue
+                }
+                keys.append(DiscoveredKey(label: label, path: key.path, declaration: declaration))
             }
-            keys.append(DiscoveredKey(label: label, path: key.path, declaration: declaration))
+            mirror = current.superclassMirror
         }
 
         if keys.isEmpty && issues.isEmpty {

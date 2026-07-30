@@ -23,6 +23,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .executableTarget(
@@ -31,6 +32,7 @@ let package = Package(
             path: "Examples/RiveInspector",
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .testTarget(
@@ -41,6 +43,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
     ],

@@ -76,6 +76,8 @@ public final class RiveDocument {
         self.source = source
         self.file = file
         self.artboardNames = artboardNames
+
+        prewarmBoundsCatalog()
     }
 
     /// Loads (or returns the cached) document for `source` via ``RiveEngine/shared``.
@@ -126,6 +128,23 @@ public final class RiveDocument {
             )
         }
         return size.width / size.height
+    }
+
+    /// Builds the bounds catalog ahead of the first ``artboardSize(named:)``
+    /// call, so sizing queries made during layout (`sizeThatFits`,
+    /// `intrinsicContentSize`) usually hit the cache instead of paying for
+    /// disk I/O plus a full legacy parse inside the layout pass.
+    ///
+    /// Fire-and-forget at utility priority. Everything funnels through the
+    /// main-actor-synchronous ``loadBoundsCatalog()``, so the prewarm and the
+    /// sync fallback can never both parse: whichever runs first builds the
+    /// catalog and the other sees the cache (`legacyBoundsParseCount` stays
+    /// at most 1).
+    private func prewarmBoundsCatalog() {
+        Task(priority: .utility) { @MainActor [weak self] in
+            guard let self, self.boundsCatalog == nil else { return }
+            _ = try? self.loadBoundsCatalog()
+        }
     }
 
     /// Returns the cached bounds catalog, building it on first use (one legacy

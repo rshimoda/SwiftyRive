@@ -254,6 +254,20 @@ struct RiveColorTests {
         #expect(color == RiveColor(red: 0, green: 1, blue: 0.5, alpha: 1))
     }
 
+    @Test func nonFiniteComponentsAreMappedToTheRange() {
+        // NaN and -inf map to 0, +inf maps to 1: `max(.nan, 0)` would
+        // propagate NaN and trap later in the UInt8 runtime conversion.
+        let nan = RiveColor(red: .nan, green: .nan, blue: .nan, alpha: .nan)
+        #expect(nan == RiveColor(red: 0, green: 0, blue: 0, alpha: 0))
+
+        let infinite = RiveColor(red: .infinity, green: -.infinity, blue: .infinity, alpha: .infinity)
+        #expect(infinite == RiveColor(red: 1, green: 0, blue: 1, alpha: 1))
+
+        // The runtime conversion (the original trap site) must not trap.
+        _ = nan.runtimeColor
+        _ = infinite.runtimeColor
+    }
+
     @Test func runtimeConversionRoundTripsWithinQuantization() {
         let color = RiveColor(red: 0.25, green: 0.5, blue: 0.75, alpha: 1)
         let roundTripped = RiveColor(runtimeColor: color.runtimeColor)

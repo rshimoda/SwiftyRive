@@ -61,6 +61,15 @@ final class RiveRenderHost {
 
     private var configuration: Configuration?
 
+    /// The configuration whose scene is actually committed in ``rive``.
+    /// Assigned only where `rive` is assigned (rebuild commit and fast-path
+    /// fit updates) and cleared wherever `rive` is cleared, so the fast path
+    /// can compare against what is *on screen* rather than what was last
+    /// *requested* — a cancelled rebuild must not be swallowed by a later
+    /// fit-only re-apply of the same configuration.
+    @ObservationIgnored
+    private var committedConfiguration: Configuration?
+
     @ObservationIgnored
     private weak var hostedView: (any RiveHostableView)?
 
@@ -76,6 +85,11 @@ final class RiveRenderHost {
     @ObservationIgnored
     private var rebuildTask: Task<Void, Never>?
 
+    /// The in-flight view-model-mismatch diagnostic, cancelled on teardown
+    /// (and superseded by the next rebuild's check).
+    @ObservationIgnored
+    private var mismatchWarningTask: Task<Void, Never>?
+
     /// Monotonic token for the latest requested rebuild; a stale build never
     /// commits over a newer one.
     @ObservationIgnored
@@ -89,6 +103,10 @@ final class RiveRenderHost {
     /// Test/introspection hook.
     var appliedArtboardName: String? { configuration?.artboardName }
 
+    /// The artboard name of the configuration whose scene is committed in
+    /// `rive`, or `nil` while loading / after failure. Test/introspection hook.
+    var committedArtboardName: String? { committedConfiguration?.artboardName }
+
     /// Applies a configuration, rebuilding runtime objects only when needed.
     ///
     /// Fit-only changes are applied to the existing `Rive` object without a
@@ -101,11 +119,22 @@ final class RiveRenderHost {
     func apply(_ configuration: Configuration) async {
         guard Task.isCancelled == false else { return }
 
-        if let current = self.configuration, rive != nil, current.rendersSameScene(as: configuration) {
+        // Fast path only when the *committed* scene matches (what is on
+        // screen) AND the last requested one does too. Comparing only the
+        // requested configuration would let a fit-only re-apply swallow a
+        // cancelled rebuild: scene A committed, apply(B) cancelled mid-flight,
+        // apply(B, fit') would then see "same scene" and merely set the fit on
+        // A's stale `Rive`, so B would never build.
+        if let committed = committedConfiguration,
+           let current = self.configuration,
+           rive != nil,
+           committed.rendersSameScene(as: configuration),
+           current.rendersSameScene(as: configuration) {
             self.configuration = configuration
-            if current.fit != configuration.fit {
+            if committed.fit != configuration.fit {
                 rive?.fit = configuration.fit.runtimeFit
             }
+            committedConfiguration = configuration
             return
         }
 
@@ -138,11 +167,36 @@ final class RiveRenderHost {
         rebuildTask = nil
         nudgeTask?.cancel()
         nudgeTask = nil
+        mismatchWarningTask?.cancel()
+        mismatchWarningTask = nil
         isNudging = false
         hostedView?.detachRive()
         configuration = nil
+        committedConfiguration = nil
         rive = nil
         error = nil
+    }
+
+    // MARK: - Appearance
+
+    /// Pauses the hosted view when its SwiftUI view disappears *without*
+    /// being removed from the hierarchy (tab switch, navigation push).
+    ///
+    /// Only display-link work stops; the built `Rive` and its state machine
+    /// survive, so reappearance resumes exactly where playback left off.
+    /// Full teardown happens in `dismantleUIView`/`dismantleNSView`, which
+    /// SwiftUI calls on true removal (including lazy-container recycling).
+    func viewDidDisappear() {
+        nudgeTask?.cancel()
+        nudgeTask = nil
+        isNudging = false
+        hostedView?.isPaused = true
+    }
+
+    /// Restores the pause state the SwiftUI environment wants after a
+    /// disappearance pause (see ``viewDidDisappear()``).
+    func viewDidAppear() {
+        hostedView?.isPaused = desiredIsPaused
     }
 
     // MARK: - Advance-nudge (workaround for rive-ios #383)
@@ -193,9 +247,11 @@ final class RiveRenderHost {
         document: RiveDocument,
         artboardName: String?
     ) {
-        Task { @MainActor in
+        mismatchWarningTask?.cancel()
+        mismatchWarningTask = Task { @MainActor in
             guard let boundName = try? await instance.viewModelName(),
                   let defaultName = try? await document.file.getDefaultViewModelInfo(for: artboard).viewModelName,
+                  Task.isCancelled == false,
                   boundName != defaultName else { return }
             Log.view.error("Bound view model '\(boundName, privacy: .public)' is not the default view model '\(defaultName, privacy: .public)' of artboard '\(artboardName ?? "(default)", privacy: .public)'. If the artboard does not use this view model, property writes will have no visible effect — create the instance with makeInstance(of:artboard:) for the artboard you render.")
         }
@@ -268,8 +324,14 @@ final class RiveRenderHost {
             }
 
             // Replace the previous `Rive` only after the new one is fully
-            // built, so switching never shows a blank frame.
+            // built, so switching never shows a blank frame. Record the
+            // commit next to the assignment: the fast path compares against
+            // `committedConfiguration`, never the last requested one.
+            // (`self.configuration` renders the same scene here — the
+            // generation guard rules out anything newer — but may carry a
+            // newer fit, which was honored above.)
             self.rive = rive
+            self.committedConfiguration = self.configuration ?? configuration
             self.error = nil
         } catch is CancellationError {
             // Superseded or view disappeared; keep whatever state we had.
@@ -278,6 +340,7 @@ final class RiveRenderHost {
             // A stale build's failure must not clobber a newer configuration.
             guard generation == buildGeneration else { return }
             rive = nil
+            committedConfiguration = nil
             self.error = error
         }
     }

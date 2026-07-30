@@ -192,6 +192,31 @@ struct SchemaValidationTests {
         #expect(hasIssue { if case .enumCaseNotInFile(_, let caseName, _) = $0 { return caseName == "Qux" } else { return false } })
     }
 
+    // MARK: - Class-hierarchy discovery
+
+    nonisolated class BaseClassSchema: RiveSchema, @unchecked Sendable {
+        static var viewModelName: String? { "Test" }
+        let number = RiveKey<Double>("Number")
+        required init() {}
+    }
+
+    nonisolated final class SubclassSchema: BaseClassSchema, @unchecked Sendable {
+        let text = RiveKey<String>("String")
+    }
+
+    @Test func classSchemaDiscoversInheritedKeys() throws {
+        // `Mirror.children` only covers one level of a class hierarchy;
+        // discovery must walk `superclassMirror` so inherited keys are not
+        // silently dropped (which would trap later in the instance subscript).
+        let keys = try SubclassSchema.discoverKeys()
+        #expect(Set(keys.map(\.path)) == ["Number", "String"])
+    }
+
+    @Test func classSchemaWithInheritedKeysValidates() async throws {
+        let document = try await Fixtures.dataBindingDocument()
+        try await document.validate(SubclassSchema.self)
+    }
+
     // MARK: - Discovery failures
 
     nonisolated struct EmptySchema: RiveSchema {}

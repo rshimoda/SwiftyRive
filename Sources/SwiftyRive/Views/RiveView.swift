@@ -17,8 +17,10 @@ public struct RiveView: View {
     private let artboardName: String?
     private let stateMachineName: String?
     private let boundViewModelInstance: RiveRuntime.ViewModelInstance?
-    private let instanceIdentity: ObjectIdentifier?
-    private let attachRenderHost: (@MainActor (RiveRenderHost) -> Void)?
+    /// The bound instance, retained **strongly**: a caller who does not hold
+    /// it themselves would otherwise get silently dead bindings. No cycle —
+    /// the instance only holds the render host weakly.
+    private let boundInstance: (any RiveBindableInstance)?
 
     @Environment(\.riveFit) private var fit
     @Environment(\.rivePaused) private var isPaused
@@ -41,8 +43,7 @@ public struct RiveView: View {
         self.artboardName = artboard
         self.stateMachineName = stateMachine
         self.boundViewModelInstance = nil
-        self.instanceIdentity = nil
-        self.attachRenderHost = nil
+        self.boundInstance = nil
     }
 
     /// Creates a view rendering an artboard bound to a typed ``RiveInstance``.
@@ -92,10 +93,7 @@ public struct RiveView: View {
         self.artboardName = artboard
         self.stateMachineName = stateMachine
         self.boundViewModelInstance = instance.viewModelInstance
-        self.instanceIdentity = ObjectIdentifier(instance)
-        self.attachRenderHost = { [weak instance] host in
-            instance?.renderHost = host
-        }
+        self.boundInstance = instance
     }
 
     public var body: some View {
@@ -118,10 +116,15 @@ public struct RiveView: View {
                         boundViewModelInstance: boundViewModelInstance
                     )
                 )
-                attachRenderHost?(host)
+                boundInstance?.renderHost = host
+                host.viewDidAppear()
             }
             .onDisappear {
-                host.teardown()
+                // Only pause: a tab switch or navigation push must not reset
+                // state machines. Full teardown happens in the representable's
+                // dismantle, which SwiftUI calls on true removal (including
+                // lazy-container recycling).
+                host.viewDidDisappear()
             }
     }
 
@@ -131,7 +134,7 @@ public struct RiveView: View {
             artboard: artboardName,
             stateMachine: stateMachineName,
             fit: fit,
-            instance: instanceIdentity
+            instance: boundInstance.map { ObjectIdentifier($0) }
         )
     }
 }

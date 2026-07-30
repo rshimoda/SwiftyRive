@@ -198,7 +198,6 @@ Planned for upcoming versions, roughly in order:
 - **List, image, and artboard properties** - typed and dynamic access to the remaining data binding property kinds.
 - **`@RiveBindable` macro** - generate observable Swift properties straight from a schema, removing the subscript/`binding(for:)` layer at call sites.
 - **visionOS support** - the runtime already ships slices for it; needs CI coverage and testing.
-- **Finer-grained observation** - per-key invalidation on `RiveInstance`, so a view reading one property does not re-render on changes to another.
 - **Legacy shim removal** - delete the artboard bounds shim as soon as rive-ios ships a size API in the Swift runtime ([#323](https://github.com/rive-app/rive-ios/issues/323)).
 
 Ideas and requests are welcome in [Issues](https://github.com/rshimoda/SwiftyRive/issues).

@@ -56,7 +56,9 @@ struct BoundsShimTests {
 
     @Test func repeatedCallsHitTheDocumentCache() async throws {
         let document = try await makeDocument()
-        #expect(document.legacyBoundsParseCount == 0)
+        // The fire-and-forget prewarm may or may not have run yet, but a
+        // parse must never happen more than once.
+        #expect(document.legacyBoundsParseCount <= 1)
 
         let first = try document.artboardSize()
         let second = try document.artboardSize()
@@ -64,6 +66,22 @@ struct BoundsShimTests {
         _ = try document.artboardAspectRatio()
 
         #expect(first == second)
+        #expect(document.legacyBoundsParseCount == 1)
+    }
+
+    @Test func boundsCatalogPrewarmsWithoutASizingCall() async throws {
+        let document = try await makeDocument()
+
+        // The prewarm is fire-and-forget at utility priority; give it a
+        // bounded window to run without ever calling artboardSize().
+        let deadline = ContinuousClock.now + .seconds(5)
+        while document.legacyBoundsParseCount == 0, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(document.legacyBoundsParseCount == 1)
+
+        // The sizing call is now a pure cache hit.
+        #expect(try document.artboardSize() == CGSize(width: 500, height: 500))
         #expect(document.legacyBoundsParseCount == 1)
     }
 }

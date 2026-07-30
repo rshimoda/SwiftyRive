@@ -29,8 +29,12 @@ public final class RiveInstance<Schema: RiveSchema> {
     /// The bound runtime instance (held strongly for the runtime's sake).
     let viewModelInstance: RiveRuntime.ViewModelInstance
 
-    /// Local mirror of every value key, keyed by property path.
-    private var mirror: [String: PropertyBox] = [:]
+    /// Local mirror of every value key, keyed by property path. The key set
+    /// is fixed at creation, so the dictionary needs no observation tracking
+    /// of its own; each ``MirrorSlot`` is individually observable, making
+    /// invalidation per-key rather than instance-wide.
+    @ObservationIgnored
+    private var mirror: [String: MirrorSlot] = [:]
 
     /// One stream-consumption task per value key. Cancelled on deinit.
     @ObservationIgnored
@@ -63,13 +67,13 @@ public final class RiveInstance<Schema: RiveSchema> {
         self.document = document
         self.viewModelInstance = viewModelInstance
 
-        var seeded: [String: PropertyBox] = [:]
+        var seeded: [String: MirrorSlot] = [:]
         for key in keys where key.declaration.kind != .trigger {
-            seeded[key.path] = try await PropertyTransport.readValue(
+            seeded[key.path] = MirrorSlot(try await PropertyTransport.readValue(
                 of: key.declaration.kind,
                 at: key.path,
                 from: viewModelInstance
-            )
+            ))
         }
         mirror = seeded
 
@@ -103,7 +107,7 @@ public final class RiveInstance<Schema: RiveSchema> {
     public subscript<V: RivePropertyValue>(key: KeyPath<Schema, RiveKey<V>>) -> V {
         get {
             let path = schema[keyPath: key].path
-            guard let box = mirror[path], let value = box.value(as: V.self) else {
+            guard let slot = mirror[path], let value = slot.box.value(as: V.self) else {
                 preconditionFailure(
                     "No mirrored value for '\(path)'. Schema keys must be stored properties so they are discovered and validated by makeInstance(of:artboard:)."
                 )
@@ -117,8 +121,13 @@ public final class RiveInstance<Schema: RiveSchema> {
                     "Unsupported value type \(V.self) for '\(path)'. Supported types: Double, Bool, String, RiveColor, and RiveEnum conformances."
                 )
             }
-            guard mirror[path] != box else { return }
-            mirror[path] = box
+            guard let slot = mirror[path] else {
+                preconditionFailure(
+                    "No mirrored value for '\(path)'. Schema keys must be stored properties so they are discovered and validated by makeInstance(of:artboard:)."
+                )
+            }
+            guard slot.box != box else { return }
+            slot.box = box
             PropertyTransport.write(box, at: path, to: viewModelInstance)
             renderHost?.requestAdvanceNudge()
         }
@@ -152,6 +161,13 @@ public final class RiveInstance<Schema: RiveSchema> {
     public func firings(of key: KeyPath<Schema, RiveTriggerKey>) -> AsyncStream<Void> {
         let path = schema[keyPath: key].path
         let fanout = ensureTriggerFanout(for: path)
+        guard fanout.isFinished == false else {
+            // The runtime's trigger stream already terminated (e.g. with an
+            // error): a subscriber registered now would never be finished and
+            // would hang forever. Hand out an immediately-finished stream,
+            // consistent with "ends at the latest when the instance deallocates".
+            return AsyncStream { $0.finish() }
+        }
         let id = UUID()
         return AsyncStream { continuation in
             fanout.continuations[id] = continuation
@@ -168,8 +184,8 @@ public final class RiveInstance<Schema: RiveSchema> {
     /// Applies a runtime-originated change to the mirror.
     /// The equality guard breaks write/stream echo loops.
     private func applyRemoteChange(_ box: PropertyBox, at path: String) {
-        guard mirror[path] != box else { return }
-        mirror[path] = box
+        guard let slot = mirror[path], slot.box != box else { return }
+        slot.box = box
     }
 
     /// Returns the fan-out for `path`, creating it on first use. Fan-outs live
@@ -210,8 +226,14 @@ public final class RiveInstance<Schema: RiveSchema> {
 private final class TriggerFanout {
     var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
+    /// True once the upstream runtime stream has terminated. New subscribers
+    /// of a finished fan-out get an immediately-finished stream — registering
+    /// them here would hang them forever, since no one would ever finish them.
+    private(set) var isFinished = false
+
     /// Finishes every subscriber stream and empties the registry.
     func finishAll() {
+        isFinished = true
         let all = continuations.values
         continuations.removeAll()
         for continuation in all {

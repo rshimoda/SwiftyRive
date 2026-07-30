@@ -33,8 +33,12 @@ public final class RiveDynamicInstance {
     /// The bound runtime instance (held strongly for the runtime's sake).
     let viewModelInstance: RiveRuntime.ViewModelInstance
 
-    /// Local mirror of every supported value property, keyed by path.
-    private var mirror: [String: PropertyBox] = [:]
+    /// Local mirror of every supported value property, keyed by path. The
+    /// path set is fixed at creation, so the dictionary needs no observation
+    /// tracking of its own; each ``MirrorSlot`` is individually observable,
+    /// making invalidation per-path rather than instance-wide.
+    @ObservationIgnored
+    private var mirror: [String: MirrorSlot] = [:]
 
     /// The transport kind of every supported property, keyed by path.
     @ObservationIgnored
@@ -66,7 +70,7 @@ public final class RiveDynamicInstance {
 
         var kinds: [String: RivePropertyKind] = [:]
         var enumCases: [String: [String]] = [:]
-        var seeded: [String: PropertyBox] = [:]
+        var seeded: [String: MirrorSlot] = [:]
         for property in properties {
             guard let kind = property.kind.propertyKind else { continue }
             kinds[property.path] = kind
@@ -74,11 +78,11 @@ public final class RiveDynamicInstance {
                 enumCases[property.path] = cases
             }
             guard kind != .trigger else { continue }
-            seeded[property.path] = try await PropertyTransport.readValue(
+            seeded[property.path] = MirrorSlot(try await PropertyTransport.readValue(
                 of: kind,
                 at: property.path,
                 from: viewModelInstance
-            )
+            ))
         }
         kindsByPath = kinds
         enumCasesByPath = enumCases
@@ -173,11 +177,11 @@ public final class RiveDynamicInstance {
     /// Returns the mirrored box for `path`, or `nil` (with a log) on an
     /// unknown path or a kind mismatch.
     private func read(_ path: String, expecting kind: RivePropertyKind) -> PropertyBox? {
-        guard let box = mirror[path], box.kind == kind else {
+        guard let slot = mirror[path], slot.box.kind == kind else {
             Log.binding.error("No \(kind.displayName, privacy: .public) property at '\(path, privacy: .public)'")
             return nil
         }
-        return box
+        return slot.box
     }
 
     /// Writes a box to `path` when the path exists with the matching kind;
@@ -185,12 +189,12 @@ public final class RiveDynamicInstance {
     /// are silently ignored.
     private func write(_ box: PropertyBox?, at path: String) {
         guard let box else { return }
-        guard kindsByPath[path] == box.kind else {
+        guard kindsByPath[path] == box.kind, let slot = mirror[path] else {
             Log.binding.error("Ignoring \(box.kind.displayName, privacy: .public) write at '\(path, privacy: .public)': no such property of that kind")
             return
         }
-        guard mirror[path] != box else { return }
-        mirror[path] = box
+        guard slot.box != box else { return }
+        slot.box = box
         PropertyTransport.write(box, at: path, to: viewModelInstance)
         renderHost?.requestAdvanceNudge()
     }
@@ -198,8 +202,8 @@ public final class RiveDynamicInstance {
     /// Applies a runtime-originated change to the mirror.
     /// The equality guard breaks write/stream echo loops.
     private func applyRemoteChange(_ box: PropertyBox, at path: String) {
-        guard mirror[path] != box else { return }
-        mirror[path] = box
+        guard let slot = mirror[path], slot.box != box else { return }
+        slot.box = box
     }
 }
 

@@ -32,6 +32,11 @@ public struct AsyncRiveView<Content: View>: View {
 
     @State private var phase: RivePhase = .loading
 
+    /// The load that produced the current terminal phase. On reappearance the
+    /// task re-fires with an unchanged ``LoadID``; a matching successful phase
+    /// is kept as-is instead of flashing the placeholder and reloading.
+    @State private var phaseID: LoadID?
+
     /// Creates a view that loads `source` and hands the current ``RivePhase`` to `content`.
     ///
     /// - Parameters:
@@ -54,20 +59,30 @@ public struct AsyncRiveView<Content: View>: View {
     public var body: some View {
         content(phase)
             .task(id: loadID) {
-                if case .success = phase {
-                    phase = .loading
-                } else if case .failure = phase {
+                let id = loadID
+                if case .success = phase, phaseID == id {
+                    // Reappearance with the same source: keep the rendered
+                    // view instead of flashing the placeholder. (A failure is
+                    // not kept — reappearing retries the load.)
+                    return
+                }
+                if case .loading = phase {} else {
                     phase = .loading
                 }
                 do {
                     let document = try await RiveEngine.shared.document(for: source)
+                    // A load superseded mid-await must not resume later and
+                    // clobber the newer source's phase.
+                    try Task.checkCancellation()
                     phase = .success(
                         RiveView(document, artboard: artboardName, stateMachine: stateMachineName)
                     )
+                    phaseID = id
                 } catch is CancellationError {
                     // View disappeared or the source changed mid-load.
                 } catch {
                     phase = .failure(error)
+                    phaseID = id
                 }
             }
     }
