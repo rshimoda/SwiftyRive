@@ -15,9 +15,11 @@ struct NativeViewTests {
         let built = await pollUntil { host.hasRive }
         #expect(built, "the initial configuration must build")
 
-        // Dropping the last reference on the main actor runs `isolated deinit`
-        // inline, so teardown must be complete right here.
+        // Dropping the last reference runs `isolated deinit` on the main actor,
+        // but the runtime may enqueue it rather than run it inline (SE-0371),
+        // so allow a bounded wait for the teardown to land.
         view = nil
-        #expect(host.hasRive == false, "deinit must release render state deterministically")
+        let torn = await pollUntil { host.hasRive == false }
+        #expect(torn, "deinit must release render state on the main actor")
     }
 }
