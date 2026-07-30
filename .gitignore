@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager / Xcode
+.build/
+.swiftpm/
+.index-build/
+DerivedData/
+xcuserdata/
+*.xcodeproj
+Package.resolved.lock
+
+# Local-only proprietary assets — must never be committed.
+LocalAssets/
+LocalAssets/**/*.riv
+
+# Vendored rive-ios reference sources (fetched from GitHub for API reference).
+.reference/
