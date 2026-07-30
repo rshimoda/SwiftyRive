@@ -8,6 +8,7 @@
 DerivedData/
 xcuserdata/
 *.xcodeproj
+!Examples/RiveInspectorApp/RiveInspector.xcodeproj
 Package.resolved.lock
 
 # Local-only proprietary assets — must never be committed.

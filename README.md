@@ -177,14 +177,16 @@ The RiveInspector demo has a toolbar button that copies the generated schema for
 
 ## Try it
 
-The repository ships a tiny macOS demo app built on the dynamic API. It inspects any `.riv` file:
+The repository ships a tiny demo app built on the dynamic API. It inspects any `.riv` file:
 
 ```sh
 swift run RiveInspector            # then drag & drop any .riv file
 swift run RiveInspector my.riv     # or pass a file directly
 ```
 
-It auto-discovers the file's artboards and data-binding properties and renders live controls for them (sliders, toggles, color pickers, enum pickers, trigger buttons).
+It auto-discovers the file's artboards and data-binding properties and renders live controls for them (sliders, toggles, color pickers, enum pickers, trigger buttons). Artboards live in the sidebar, properties in a trailing inspector, and the toolbar's reload button (⌘R) re-reads the file after a re-export.
+
+To run it on iOS (device or simulator), open `Examples/RiveInspectorApp/RiveInspector.xcodeproj` — a multiplatform Xcode target that shares the same sources; files arrive via the file importer or drag & drop.
 
 ## How it works
 

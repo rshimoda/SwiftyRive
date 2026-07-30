@@ -1,43 +1,22 @@
-#if os(macOS)
 import SwiftUI
 import SwiftyRive
 
-/// Sidebar: artboard/fit/paused controls plus one auto-generated control per
+/// Trailing inspector: sizing demos plus one auto-generated control per
 /// discovered data-binding property, grouped by parent view-model path.
 struct InspectorPanel: View {
     let document: RiveDocument
     let instance: RiveDynamicInstance?
-    @Binding var artboard: String?
-    @Binding var fit: RiveFit
-    @Binding var isPaused: Bool
+    let artboard: String?
+    let fit: RiveFit
     @Binding var useNaturalSize: Bool
     @Binding var naturalAxisMode: NaturalAxisMode
     let bindingNote: String?
 
     @State private var isPopoverPresented = false
 
-    private static let fits: [(name: String, fit: RiveFit)] = [
-        ("Contain", .contain), ("Cover", .cover), ("Fill", .fill),
-        ("Fit Width", .fitWidth), ("Scale Down", .scaleDown), ("Actual Size", .actualSize),
-    ]
-
     var body: some View {
         Form {
             Section("View") {
-                if document.artboardNames.isEmpty == false {
-                    Picker("Artboard", selection: $artboard) {
-                        Text("Default").tag(String?.none)
-                        ForEach(document.artboardNames, id: \.self) { name in
-                            Text(name).tag(String?.some(name))
-                        }
-                    }
-                }
-                Picker("Fit", selection: $fit) {
-                    ForEach(Self.fits, id: \.name) { option in
-                        Text(option.name).tag(option.fit)
-                    }
-                }
-                Toggle("Paused", isOn: $isPaused)
                 Toggle("Natural size", isOn: $useNaturalSize)
                 if useNaturalSize {
                     Picker("Axes", selection: $naturalAxisMode) {
@@ -48,7 +27,7 @@ struct InspectorPanel: View {
                     .pickerStyle(.segmented)
                 }
                 LabeledContent("Authored size", value: artboardSizeText)
-                Button("Show in popover") { isPopoverPresented = true }
+                Button("Show in Popover") { isPopoverPresented = true }
                     .popover(isPresented: $isPopoverPresented, arrowEdge: .leading) {
                         popoverContent
                     }
@@ -87,7 +66,6 @@ struct InspectorPanel: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 320, idealWidth: 340, maxWidth: 440)
     }
 
     /// The authored artboard size, e.g. "500 × 500 pt", or "—" when it cannot
@@ -221,7 +199,7 @@ private struct NumberControl: View {
     private var value: Double { instance[number: path] ?? 0 }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Slider(value: Binding(
                 get: { instance[number: path] ?? 0 },
                 set: { instance[number: path] = $0 }
@@ -268,4 +246,3 @@ private struct NumberControl: View {
         value.formatted(.number.grouping(.never).precision(.fractionLength(0...2)))
     }
 }
-#endif
