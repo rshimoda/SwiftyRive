@@ -4,6 +4,12 @@ A Swifty, SwiftUI-first wrapper over [rive-ios](https://github.com/rive-app/rive
 
 Rive's new Swift runtime (`Worker` / `File` / `Rive` / `ViewModelInstance`) is a solid, fully `async` foundation, but using it directly means stringly-typed property paths, manual view-model plumbing, no SwiftUI data binding, and no way to ask an artboard for its own size. SwiftyRive layers a small, strict Swift 6 API on top: typed schemas validated at load time, two-way `@Observable` binding, natural content sizing, clean fit/alignment, and a shared document cache. `RiveRuntime` is an `internal import` in every file, so no runtime type ever leaks into your code.
 
+<p align="center">
+  <img src="Docs/hero.gif" width="560" alt="RiveInspector opening a .riv file: artboards are discovered automatically, data-binding properties become live controls, and edits drive the animation in real time.">
+</p>
+
+<p align="center"><em><a href="Examples/RiveInspector">RiveInspector</a> (included example app): drop in any .riv file — artboards and data-binding properties are discovered at runtime and rendered as live controls, all through SwiftyRive's dynamic API.</em></p>
+
 ## SwiftyRive vs. raw rive-ios
 
 | | raw rive-ios (Concurrency API) | SwiftyRive |
@@ -198,6 +204,10 @@ swift run RiveInspector my.riv     # or pass a file directly
 ```
 
 It auto-discovers the file's artboards and data-binding properties and renders live controls for them (sliders, toggles, color pickers, enum pickers, trigger buttons). Artboards live in the sidebar, properties in a trailing inspector, and the toolbar's reload button (⌘R) re-reads the file after a re-export.
+
+| | | |
+|---|---|---|
+| ![Artboard list and auto-generated property controls](Docs/inspector-overview.png) | ![A color property edited through the system color picker, driving the animation live](Docs/inspector-color-binding.png) | ![Switching artboards on a cached document](Docs/inspector-artboards.png) |
 
 To run it on iOS (device or simulator), open `Examples/RiveInspectorApp/RiveInspector.xcodeproj` — a multiplatform Xcode target that shares the same sources; files arrive via the file importer or drag & drop.
 
