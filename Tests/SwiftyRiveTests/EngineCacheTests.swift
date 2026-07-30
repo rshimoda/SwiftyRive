@@ -113,14 +113,88 @@ struct EngineCacheTests {
         let engine = RiveEngine()
         let source = try fixtureSource(identifier: "cache.evict-in-flight.riv")
 
-        // Race a load against an eviction: the caller must end up with a
-        // document, never a stray CancellationError.
+        // Evict mid-load: the caller must end up with a document from a fresh
+        // retried load, never a stray CancellationError.
         let loader = Task {
             try await engine.document(for: source)
         }
+        // Wait until the in-flight load is registered so the eviction cancels
+        // it rather than racing ahead of it.
+        while await engine.cachedSources.isEmpty {
+            await Task.yield()
+        }
         await engine.removeDocument(for: source)
+
         let document = try await loader.value
         #expect(document.artboardNames.isEmpty == false)
+        #expect(await engine.loadCount == 2, "the evicted load must be retried with a fresh load")
+    }
+
+    @Test func callerCancellationSurfacesInsteadOfRetryingForever() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.caller-cancel.riv")
+
+        let loader = Task {
+            try await engine.document(for: source)
+        }
+        // Arrange the retry path exactly as above: evict the registered
+        // in-flight load, forcing the caller onto its retry loop…
+        while await engine.cachedSources.isEmpty {
+            await Task.yield()
+        }
+        await engine.removeDocument(for: source)
+
+        // …then cancel the caller itself: its own cancellation must surface
+        // as CancellationError (the escape hatch that prevents infinite retry).
+        loader.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await loader.value
+        }
+    }
+
+    // MARK: - Preload edges
+
+    @Test func preloadWithDuplicateSourcesLoadsOnlyOnce() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.preload.duplicates.riv")
+
+        let failures = await engine.preloadDocuments(for: [source, source, source])
+
+        #expect(failures.isEmpty)
+        #expect(await engine.loadCount == 1)
+        #expect(await engine.cachedSources == [source])
+    }
+
+    @Test func preloadWithEmptyInputDoesNothing() async throws {
+        let engine = RiveEngine()
+
+        let failures = await engine.preloadDocuments(for: [])
+
+        #expect(failures.isEmpty)
+        #expect(await engine.loadCount == 0)
+        #expect(await engine.cachedSources.isEmpty)
+    }
+
+    @Test func preloadOfAnAlreadyCachedSourceIsACacheHit() async throws {
+        let engine = RiveEngine()
+        let source = try fixtureSource(identifier: "cache.preload.cached.riv")
+
+        _ = try await engine.document(for: source)
+        let failures = await engine.preloadDocuments(for: [source])
+
+        #expect(failures.isEmpty)
+        #expect(await engine.loadCount == 1)
+    }
+
+    @Test func allFailingPreloadLeavesTheCacheEmpty() async throws {
+        let engine = RiveEngine()
+        let invalid = try corruptSource()
+
+        let failures = await engine.preloadDocuments(for: [invalid])
+
+        #expect(failures.count == 1)
+        #expect(failures[invalid] is RiveLoadError)
+        #expect(await engine.cachedSources.isEmpty)
     }
 }
 

@@ -3,9 +3,17 @@ import SwiftUI
 import Testing
 @testable import SwiftyRive
 
+#if canImport(AppKit) && !canImport(UIKit)
+import AppKit
+#endif
+
 /// Tests for ``RiveInstance`` that work headless (no rendering view):
 /// seeding, the local mirror, subscript/binding round trips, and diagnostics.
 /// Animation-originated updates need a rendering view and are not covered here.
+///
+/// The time limit is a backstop for the stream/polling tests, which already
+/// carry their own (much shorter) watchdogs.
+@Suite(.timeLimit(.minutes(1)))
 struct InstanceTests {
     @Test func makeInstanceSeedsMirrorWithFileDefaults() async throws {
         let document = try await Fixtures.dataBindingDocument()
@@ -39,12 +47,8 @@ struct InstanceTests {
 
     @Test func makeInstanceRejectsAnUnknownArtboardName() async throws {
         let document = try await Fixtures.dataBindingDocument()
-        do {
+        await expectArtboardNotFound(name: "Missing", available: ["Artboard"]) {
             _ = try await document.makeInstance(of: DefaultViewModelSchema.self, artboard: "Missing")
-            Issue.record("Expected artboardNotFound to be thrown")
-        } catch let RiveLoadError.artboardNotFound(name, available) {
-            #expect(name == "Missing")
-            #expect(available == ["Artboard"])
         }
     }
 
@@ -94,14 +98,12 @@ struct InstanceTests {
 
         PropertyTransport.write(.string("runtime-originated"), at: "String", to: instance.viewModelInstance)
 
-        var delivered = false
-        for _ in 0..<100 {
+        // Headless there is no display link; each poll reads the runtime value
+        // directly until the stream delivers into the mirror.
+        let delivered = await pollUntil {
             _ = try? await PropertyTransport.readValue(of: .string, at: "String", from: instance.viewModelInstance)
-            if instance[\.text] == "runtime-originated" {
-                delivered = true
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
+        } _: {
+            instance[\.text] == "runtime-originated"
         }
         #expect(delivered, "The value stream never delivered a runtime-side change into the mirror")
     }
@@ -124,21 +126,9 @@ struct InstanceTests {
         let instance = try await document.makeInstance(of: FixtureSchema.self)
         let stream = instance.firings(of: \.triggerRed)
 
-        let consumer = Task {
-            for await _ in stream {
-                return true
-            }
-            return false
-        }
         instance.fire(\.triggerRed)
 
-        let watchdog = Task {
-            try? await Task.sleep(for: .seconds(10))
-            consumer.cancel()
-        }
-        let received = await consumer.value
-        watchdog.cancel()
-        #expect(received, "fire(_:) never reached the firings(of:) stream")
+        #expect(await firstEvent(of: stream), "fire(_:) never reached the firings(of:) stream")
     }
 
     /// Every `firings(of:)` call returns an independent stream: ending one
@@ -150,29 +140,10 @@ struct InstanceTests {
         let first = instance.firings(of: \.triggerRed)
         let second = instance.firings(of: \.triggerRed)
 
-        let firstConsumer = Task {
-            for await _ in first {
-                return true
-            }
-            return false
-        }
-        let secondConsumer = Task {
-            for await _ in second {
-                return true
-            }
-            return false
-        }
-
         instance.fire(\.triggerRed)
 
-        let watchdog = Task {
-            try? await Task.sleep(for: .seconds(10))
-            firstConsumer.cancel()
-            secondConsumer.cancel()
-        }
-        let firstReceived = await firstConsumer.value
-        let secondReceived = await secondConsumer.value
-        watchdog.cancel()
+        let firstReceived = await firstEvent(of: first)
+        let secondReceived = await firstEvent(of: second)
         #expect(firstReceived && secondReceived, "both independent streams must observe the firing")
     }
 
@@ -191,21 +162,9 @@ struct InstanceTests {
         doomedConsumer.cancel()
         await doomedConsumer.value
 
-        let survivorConsumer = Task {
-            for await _ in survivor {
-                return true
-            }
-            return false
-        }
         instance.fire(\.triggerRed)
 
-        let watchdog = Task {
-            try? await Task.sleep(for: .seconds(10))
-            survivorConsumer.cancel()
-        }
-        let received = await survivorConsumer.value
-        watchdog.cancel()
-        #expect(received, "the surviving stream must keep receiving firings")
+        #expect(await firstEvent(of: survivor), "the surviving stream must keep receiving firings")
     }
 
     /// Deallocating the instance finishes every vended firings stream
@@ -215,21 +174,9 @@ struct InstanceTests {
         var instance: RiveInstance<FixtureSchema>? = try await document.makeInstance(of: FixtureSchema.self)
         let stream = try #require(instance).firings(of: \.triggerRed)
 
-        let consumer = Task {
-            for await _ in stream {}
-            // Distinguish a natural finish from the watchdog cancelling us.
-            return Task.isCancelled == false
-        }
-
         instance = nil
 
-        let watchdog = Task {
-            try? await Task.sleep(for: .seconds(10))
-            consumer.cancel()
-        }
-        let finished = await consumer.value
-        watchdog.cancel()
-        #expect(finished, "firings streams must finish when the instance deallocates")
+        #expect(await streamFinishes(stream), "firings streams must finish when the instance deallocates")
     }
 
     @Test func diagnosticsDumpContainsFullTree() async throws {
@@ -283,4 +230,42 @@ struct RiveColorTests {
         #expect(abs(color.green - 0.4) < 0.01)
         #expect(abs(color.blue - 0.6) < 0.01)
     }
+
+    @Test func translucentAlphaSurvivesTheRuntimeRoundTrip() {
+        let color = RiveColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 0.25)
+        let roundTripped = RiveColor(runtimeColor: color.runtimeColor)
+        #expect(abs(roundTripped.alpha - 0.25) < 1.0 / 255)
+        #expect(abs(roundTripped.red - color.red) < 1.0 / 255)
+        #expect(abs(roundTripped.green - color.green) < 1.0 / 255)
+        #expect(abs(roundTripped.blue - color.blue) < 1.0 / 255)
+    }
+
+    @Test func swiftUIColorConversionRoundTrips() {
+        let original = RiveColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 0.8)
+        let roundTripped = RiveColor(SwiftUI.Color(original))
+        #expect(abs(roundTripped.red - original.red) < 0.01)
+        #expect(abs(roundTripped.green - original.green) < 0.01)
+        #expect(abs(roundTripped.blue - original.blue) < 0.01)
+        #expect(abs(roundTripped.alpha - original.alpha) < 0.01)
+    }
+
+    #if canImport(AppKit) && !canImport(UIKit)
+    @Test func nsColorInitConvertsToSRGB() {
+        // A Display-P3 color must land in sRGB space, not be read raw.
+        let p3 = NSColor(displayP3Red: 0.5, green: 0.5, blue: 0.5, alpha: 0.75)
+        let expected = p3.usingColorSpace(.sRGB)!
+        let color = RiveColor(p3)
+        #expect(abs(color.red - Double(expected.redComponent)) < 0.01)
+        #expect(abs(color.green - Double(expected.greenComponent)) < 0.01)
+        #expect(abs(color.blue - Double(expected.blueComponent)) < 0.01)
+        #expect(abs(color.alpha - 0.75) < 0.01)
+    }
+
+    @Test func nsPatternColorFallsBackToOpaqueBlack() {
+        // Pattern colors have no sRGB representation; the documented fallback
+        // is opaque black rather than a crash or garbage components.
+        let pattern = NSColor(patternImage: NSImage(size: NSSize(width: 1, height: 1)))
+        #expect(RiveColor(pattern) == RiveColor(red: 0, green: 0, blue: 0, alpha: 1))
+    }
+    #endif
 }

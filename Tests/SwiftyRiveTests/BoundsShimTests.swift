@@ -4,7 +4,6 @@ import SwiftUI
 import Testing
 @testable import SwiftyRive
 
-@Suite("Bounds shim")
 struct BoundsShimTests {
     /// Loads a fresh document directly (bypassing the engine cache) so the
     /// per-document legacy parse counter starts at zero deterministically.
@@ -35,12 +34,8 @@ struct BoundsShimTests {
 
     @Test func unknownArtboardThrowsWithAvailableNames() async throws {
         let document = try await makeDocument()
-        do {
+        await expectArtboardNotFound(name: "Missing", available: ["Artboard"]) {
             _ = try document.artboardSize(named: "Missing")
-            Issue.record("Expected artboardNotFound to be thrown")
-        } catch let RiveLoadError.artboardNotFound(name, available) {
-            #expect(name == "Missing")
-            #expect(available == ["Artboard"])
         }
     }
 
@@ -86,7 +81,6 @@ struct BoundsShimTests {
     }
 }
 
-@Suite("Natural size proposal resolution")
 struct NaturalSizeResolutionTests {
     private let natural = CGSize(width: 400, height: 200)
 

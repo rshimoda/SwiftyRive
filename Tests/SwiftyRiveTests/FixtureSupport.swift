@@ -8,6 +8,10 @@ import Testing
 /// (Tests/Assets, tag 6.22.0). Its root view model "Test" carries every
 /// supported property kind plus nested view models "Nested" and "Default";
 /// dump the full tree with `RiveDocument.dumpViewModels()`.
+///
+/// Invariant: tests must never evict from `RiveEngine.shared` — suites that
+/// need parse-count determinism (BoundsShimTests) rely on shared-cache entries
+/// staying put; use a private `RiveEngine()` for eviction scenarios.
 enum Fixtures {
     static func data(named name: String) throws -> Data {
         guard let url = Bundle.module.url(forResource: name, withExtension: "riv", subdirectory: "Fixtures") else {
@@ -24,6 +28,86 @@ enum Fixtures {
 
     enum FixtureError: Error {
         case missing(String)
+    }
+}
+
+// MARK: - Async assertion helpers
+
+/// Polls `condition` until it holds or `deadline` elapses, running `pump`
+/// before every check (e.g. a direct runtime read that nudges a value stream).
+/// Returns whether the condition was observed in time.
+func pollUntil(
+    deadline: Duration = .seconds(10),
+    pump: () async -> Void = {},
+    _ condition: () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let end = clock.now + deadline
+    while true {
+        await pump()
+        if condition() {
+            return true
+        }
+        guard clock.now < end else {
+            return false
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+}
+
+/// Awaits the first event of `stream`, giving up after `timeout`.
+///
+/// Returns `true` when an event arrived, `false` when the stream finished
+/// without one or the timeout elapsed first.
+func firstEvent(of stream: AsyncStream<Void>, within timeout: Duration = .seconds(5)) async -> Bool {
+    let consumer = Task {
+        for await _ in stream {
+            return true
+        }
+        return false
+    }
+    let watchdog = Task {
+        try? await Task.sleep(for: timeout)
+        consumer.cancel()
+    }
+    defer { watchdog.cancel() }
+    return await consumer.value
+}
+
+/// Awaits `stream` finishing on its own, giving up after `timeout`.
+///
+/// Returns `true` only for a natural finish — a timeout (which cancels the
+/// consuming task) reports `false`.
+func streamFinishes(_ stream: AsyncStream<Void>, within timeout: Duration = .seconds(5)) async -> Bool {
+    let consumer = Task {
+        for await _ in stream {}
+        // Distinguish a natural finish from the watchdog cancelling us.
+        return Task.isCancelled == false
+    }
+    let watchdog = Task {
+        try? await Task.sleep(for: timeout)
+        consumer.cancel()
+    }
+    defer { watchdog.cancel() }
+    return await consumer.value
+}
+
+/// Asserts that `body` throws `RiveLoadError.artboardNotFound` carrying both
+/// payload fields: the failing name and the list of available artboards.
+func expectArtboardNotFound(
+    name: String,
+    available: [String],
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ body: () async throws -> Void
+) async {
+    do {
+        try await body()
+        Issue.record("Expected artboardNotFound to be thrown", sourceLocation: sourceLocation)
+    } catch let RiveLoadError.artboardNotFound(thrownName, thrownAvailable) {
+        #expect(thrownName == name, sourceLocation: sourceLocation)
+        #expect(thrownAvailable == available, sourceLocation: sourceLocation)
+    } catch {
+        Issue.record("Expected artboardNotFound, got \(error)", sourceLocation: sourceLocation)
     }
 }
 

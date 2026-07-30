@@ -46,12 +46,8 @@ struct DynamicInstanceTests {
 
     @Test func discoveryRejectsAnUnknownArtboard() async throws {
         let document = try await Fixtures.dataBindingDocument()
-        do {
+        await expectArtboardNotFound(name: "Missing", available: ["Artboard"]) {
             _ = try await document.makeDynamicInstance(artboard: "Missing")
-            Issue.record("Expected artboardNotFound to be thrown")
-        } catch let RiveLoadError.artboardNotFound(name, available) {
-            #expect(name == "Missing")
-            #expect(available == ["Artboard"])
         }
     }
 
@@ -138,16 +134,12 @@ struct DynamicInstanceTests {
 
         PropertyTransport.write(.string("runtime-originated"), at: "String", to: instance.viewModelInstance)
 
-        // Headless there is no display link; poll with direct reads until
-        // the stream delivers into the mirror.
-        var delivered = false
-        for _ in 0..<100 {
+        // Headless there is no display link; each poll reads the runtime value
+        // directly until the stream delivers into the mirror.
+        let delivered = await pollUntil {
             _ = try? await PropertyTransport.readValue(of: .string, at: "String", from: instance.viewModelInstance)
-            if instance[string: "String"] == "runtime-originated" {
-                delivered = true
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
+        } _: {
+            instance[string: "String"] == "runtime-originated"
         }
         #expect(delivered, "The value stream never delivered a runtime-side change into the mirror")
     }

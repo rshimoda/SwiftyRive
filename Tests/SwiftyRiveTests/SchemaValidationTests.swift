@@ -27,23 +27,15 @@ struct SchemaValidationTests {
 
     @Test func validateRejectsAnUnknownArtboardName() async throws {
         let document = try await Fixtures.dataBindingDocument()
-        do {
+        await expectArtboardNotFound(name: "Missing", available: ["Artboard"]) {
             try await document.validate(DefaultViewModelSchema.self, artboard: "Missing")
-            Issue.record("Expected artboardNotFound to be thrown")
-        } catch let RiveLoadError.artboardNotFound(name, available) {
-            #expect(name == "Missing")
-            #expect(available == ["Artboard"])
         }
     }
 
     @Test func validateRejectsAnUnknownArtboardEvenWithAnExplicitViewModelName() async throws {
         let document = try await Fixtures.dataBindingDocument()
-        do {
+        await expectArtboardNotFound(name: "Missing", available: ["Artboard"]) {
             try await document.validate(FixtureSchema.self, artboard: "Missing")
-            Issue.record("Expected artboardNotFound to be thrown")
-        } catch let RiveLoadError.artboardNotFound(name, available) {
-            #expect(name == "Missing")
-            #expect(available == ["Artboard"])
         }
     }
 
