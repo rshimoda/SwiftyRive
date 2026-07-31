@@ -15,6 +15,11 @@ final class RecentPreviewStore {
     /// area. Wider than the widest tile, so the bitmap still has pixels to
     /// spare on a 3x screen without holding a 3x-sized image per entry.
     private static let renderSize = CGSize(width: 240, height: 180)
+    /// Tiles show artwork edge to edge, so the crop is Rive's job, not
+    /// SwiftUI's: `cover` fills the 4:3 bitmap at full render resolution.
+    /// Letterboxing here and scaling the result up to fill instead would blow
+    /// a tall artboard's few hundred pixels across the whole tile.
+    private static let renderFit = RiveFit.cover
     private static let renderScale: CGFloat = 2
     /// Seconds the state machine is advanced before the frame is captured.
     /// Files that open on an intro animation are still empty at zero; half a
@@ -70,7 +75,7 @@ final class RecentPreviewStore {
             guard let document = try? await RiveDocument.load(.url(url)) else { return nil }
             return try? await document.snapshot(
                 size: renderSize,
-                fit: .contain,
+                fit: renderFit,
                 scale: renderScale,
                 at: renderTime
             )

@@ -55,26 +55,39 @@ struct RecentsView: View {
         .help("Open a .riv file from disk or the web")
     }
 
+    /// A screenful of tiles is a screenful of glass, so the grid declares one
+    /// container and the system renders them in a single pass. Spacing is zero
+    /// on purpose: the container is here to batch the effect, not to let
+    /// neighbouring tiles melt into each other the way a toolbar's controls do.
+    @ViewBuilder
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: Self.columns, spacing: 20) {
-                ForEach(model.recents.entries) { entry in
-                    RecentTile(
-                        entry: entry,
-                        previews: model.previews,
-                        isAvailable: unavailableIDs.contains(entry.id) == false
-                    ) {
-                        open(entry)
-                    }
-                    .contextMenu {
-                        Button("Remove", systemImage: "trash", role: .destructive) {
-                            model.recents.remove(entry)
-                        }
+            if #available(iOS 26.0, macOS 26.0, *) {
+                GlassEffectContainer(spacing: 0) { tiles }
+            } else {
+                tiles
+            }
+        }
+    }
+
+    private var tiles: some View {
+        LazyVGrid(columns: Self.columns, spacing: 20) {
+            ForEach(model.recents.entries) { entry in
+                RecentTile(
+                    entry: entry,
+                    previews: model.previews,
+                    isAvailable: unavailableIDs.contains(entry.id) == false
+                ) {
+                    open(entry)
+                }
+                .contextMenu {
+                    Button("Remove", systemImage: "trash", role: .destructive) {
+                        model.recents.remove(entry)
                     }
                 }
             }
-            .padding(16)
         }
+        .padding(16)
     }
 
     /// The action-carrying empty state for the whole detail area.
@@ -112,10 +125,10 @@ struct RecentsView: View {
     }
 }
 
-/// One recents tile: a rendered frame of the file over a subtle backdrop, with
-/// the file name, a source badge, and when it was added underneath. The whole
-/// tile opens the file; unresolvable entries dim and show a warning in place of
-/// artwork but stay deletable.
+/// One recents tile: a rendered frame of the file filling the tile corner to
+/// corner under a sheet of glass, with the file name, a source badge, and when
+/// it was added underneath. The whole tile opens the file; unresolvable entries
+/// dim and show a warning in place of artwork but stay deletable.
 private struct RecentTile: View {
     /// What the preview area shows right now.
     private enum Phase {
@@ -132,8 +145,8 @@ private struct RecentTile: View {
     @State private var phase = Phase.loading
     @State private var isHovering = false
 
-    /// Transparent artwork needs a lid: without the border a preview with no
-    /// background of its own bleeds into the window.
+    /// One shape for the crop, the hover tint, and the glass, so the artwork's
+    /// edge and the material's edge are the same curve.
     private static let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
 
     var body: some View {
@@ -151,22 +164,22 @@ private struct RecentTile: View {
         .task(id: entry.id) { await loadPreview() }
     }
 
+    /// The backdrop stays under the artwork for files drawn on transparency;
+    /// the hover tint moves above it, since artwork that reaches the edges
+    /// would otherwise hide a highlight painted behind it.
     private var preview: some View {
         artwork
-            .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                ZStack {
-                    Self.shape.fill(.quinary)
-                    Self.shape.fill(.quaternary).opacity(isHovering ? 1 : 0)
-                }
-            }
+            .background(.quinary)
             .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .overlay { Self.shape.fill(.quaternary).opacity(isHovering ? 1 : 0) }
             .clipShape(Self.shape)
-            .overlay { Self.shape.strokeBorder(.quaternary, lineWidth: 1) }
+            .overlay { rim }
             .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 
+    /// The artwork bleeds to the tile's corners; the loading and failure
+    /// stand-ins keep their natural size and sit in the middle.
     @ViewBuilder
     private var artwork: some View {
         switch phase {
@@ -177,13 +190,33 @@ private struct RecentTile: View {
         case .ready(let image):
             Image(decorative: image, scale: 2)
                 .resizable()
-                .scaledToFit()
+                .scaledToFill()
                 .transition(.opacity)
         case .unavailable:
             Image(systemName: "exclamationmark.triangle")
                 .font(.title3)
                 .foregroundStyle(.tertiary)
                 .transition(.opacity)
+        }
+    }
+
+    /// Liquid Glass laid over the finished tile. The material lenses whatever
+    /// is behind it, and that backdrop is now the artwork itself, so the
+    /// bending lands where glass bends light — around the rim — and the middle
+    /// of the picture stays a plain image. The variant has to be `clear`:
+    /// `regular` frosts the whole pane and the preview disappears into it.
+    ///
+    /// The hairline is the glass layer's own content rather than a separate
+    /// overlay, which is the one arrangement that survives the material —
+    /// clear glass lifts pale pixels to white, so a stroke behind it vanishes
+    /// and a file whose artwork is white leaves no tile at all.
+    @ViewBuilder
+    private var rim: some View {
+        let hairline = Self.shape.strokeBorder(.quaternary, lineWidth: 1)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            hairline.glassEffect(.clear, in: Self.shape)
+        } else {
+            hairline
         }
     }
 
