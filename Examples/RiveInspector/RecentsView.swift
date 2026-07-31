@@ -17,6 +17,8 @@ struct RecentsView: View {
             }
         }
         .navigationTitle("Rive Inspector")
+        // No file, no sidebar: the toggle would only reveal an empty column.
+        .toolbar(removing: .sidebarToggle)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 openAffordance

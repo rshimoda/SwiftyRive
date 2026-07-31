@@ -18,6 +18,7 @@ enum InspectorRoute: Hashable {
 struct ContentView: View {
     @State private var model = InspectorModel()
     @State private var path: [InspectorRoute] = []
+    @State private var columnVisibility = NavigationSplitViewVisibility.detailOnly
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #endif
@@ -57,8 +58,8 @@ struct ContentView: View {
                 }
             }
             .onChange(of: path) {
-                // Standard back navigation closes the session, returning the
-                // sidebar to its neutral empty state.
+                // Standard back navigation closes the session, collapsing the
+                // sidebar along with it.
                 if path.isEmpty {
                     model.close()
                 }
@@ -85,13 +86,18 @@ struct ContentView: View {
         #endif
     }
 
+    /// The sidebar only exists while a file is open: with nothing to inspect it
+    /// collapses instead of showing an empty column.
     private var splitLayout: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarPanel(model: model)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
                 .navigationTitle("RiveInspector")
         } detail: {
             detailStack
+        }
+        .onChange(of: path.isEmpty, initial: true) { _, isAtRoot in
+            columnVisibility = isAtRoot ? .detailOnly : .all
         }
     }
 

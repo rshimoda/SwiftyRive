@@ -34,5 +34,16 @@ struct RiveInspectorApp: App {
             ContentView()
             #endif
         }
+        #if os(macOS)
+        if #available(macOS 15.0, *) {
+            UtilityWindow("Utility", id: "utility") {
+                Text("Utility")
+                    .padding()
+            }
+        }
+        Settings {
+            EmptyView()
+        }
+        #endif
     }
 }

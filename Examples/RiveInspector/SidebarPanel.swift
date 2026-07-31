@@ -3,7 +3,8 @@ import SwiftyRive
 
 /// The single (leading) sidebar: artboard selection, view options, and one
 /// auto-generated control per discovered data-binding property, grouped by
-/// parent view-model path. Shows a neutral placeholder while no file is open.
+/// parent view-model path. The column is collapsed while no file is open, so
+/// this renders nothing in that case.
 struct SidebarPanel: View {
     @Bindable var model: InspectorModel
 
@@ -14,22 +15,8 @@ struct SidebarPanel: View {
         if let document = model.document {
             controls(for: document)
         } else {
-            emptyState
+            Color.clear
         }
-    }
-
-    /// Deliberately neutral: the actionable empty state lives in the detail
-    /// area; the sidebar just states why it has nothing to show.
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.title2)
-                .foregroundStyle(.tertiary)
-            Text("No File Open")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func controls(for document: RiveDocument) -> some View {
