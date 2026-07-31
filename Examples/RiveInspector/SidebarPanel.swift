@@ -3,8 +3,8 @@ import SwiftyRive
 
 /// The single (leading) sidebar: artboard selection, view options, and one
 /// auto-generated control per discovered data-binding property, grouped by
-/// parent view-model path. The column is collapsed while no file is open, so
-/// this renders nothing in that case.
+/// parent view-model path. The column is collapsed while no file is open, but
+/// it can still be revealed by hand, so it keeps a placeholder.
 struct SidebarPanel: View {
     @Bindable var model: InspectorModel
 
@@ -15,7 +15,17 @@ struct SidebarPanel: View {
         if let document = model.document {
             controls(for: document)
         } else {
-            Color.clear
+            emptyState
+        }
+    }
+
+    /// Seen only when the collapsed column is revealed by hand. Describes what
+    /// the sidebar is for; the action to open a file lives in the detail area.
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("Nothing to Inspect", systemImage: "slider.horizontal.3")
+        } description: {
+            Text("Artboards and data-binding properties appear here once a file is open.")
         }
     }
 
