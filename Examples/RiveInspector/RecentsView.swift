@@ -76,15 +76,10 @@ struct RecentsView: View {
                 RecentTile(
                     entry: entry,
                     previews: model.previews,
-                    isAvailable: unavailableIDs.contains(entry.id) == false
-                ) {
-                    open(entry)
-                }
-                .contextMenu {
-                    Button("Remove", systemImage: "trash", role: .destructive) {
-                        model.recents.remove(entry)
-                    }
-                }
+                    isAvailable: unavailableIDs.contains(entry.id) == false,
+                    open: { open(entry) },
+                    remove: { model.recents.remove(entry) }
+                )
             }
         }
         .padding(16)
@@ -141,6 +136,7 @@ private struct RecentTile: View {
     let previews: RecentPreviewStore
     let isAvailable: Bool
     let open: () -> Void
+    let remove: () -> Void
 
     @State private var phase = Phase.loading
     @State private var isHovering = false
@@ -149,19 +145,27 @@ private struct RecentTile: View {
     /// edge and the material's edge are the same curve.
     private static let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
 
+    /// Only the artwork is the button, so the focus ring, the press feedback,
+    /// and the context menu's lifted preview all trace the thumbnail rather
+    /// than boxing in the caption. Tapping the caption still opens the file.
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 8) {
-                preview
-                caption
-            }
-            .contentShape(.rect)
-            .opacity(isAvailable ? 1 : 0.5)
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: open) { preview }
+                .buttonStyle(TileButtonStyle())
+                .contextMenu {
+                    Button("Remove", systemImage: "trash", role: .destructive, action: remove)
+                }
+            caption
+                .contentShape(.rect)
+                .onTapGesture(perform: open)
         }
-        .buttonStyle(TileButtonStyle())
+        .opacity(isAvailable ? 1 : 0.5)
         .onHover { isHovering = $0 }
         .help(helpText)
         .task(id: entry.id) { await loadPreview() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Remove", remove)
     }
 
     /// The backdrop stays under the artwork for files drawn on transparency;
