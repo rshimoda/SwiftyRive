@@ -14,6 +14,7 @@ nonisolated struct RecentEntry: Identifiable, Hashable, Codable {
     var location: Location
     var name: String
     var authoredSize: String?
+    /// When the file was opened the first time; reopening does not change it.
     var openedAt: Date
 
     var isRemote: Bool {
@@ -30,7 +31,7 @@ nonisolated struct RecentEntry: Identifiable, Hashable, Codable {
     }
 }
 
-/// Most-recent-first list of opened files, persisted to `UserDefaults` as JSON
+/// Opened files in first-open order, newest first, persisted to `UserDefaults` as JSON
 /// (under `swift run` that resolves to the process-name preferences domain, so
 /// the SPM executable and the app builds share the same code path).
 @Observable
@@ -123,8 +124,16 @@ final class RecentsStore {
         }
     }
 
+    /// Position is fixed by the first open: reopening a file refreshes its
+    /// bookmark and metadata in place instead of shuffling the list.
     private func insert(_ entry: RecentEntry) {
-        entries.removeAll { $0.dedupeKey == entry.dedupeKey }
+        if let index = entries.firstIndex(where: { $0.dedupeKey == entry.dedupeKey }) {
+            entries[index].location = entry.location
+            entries[index].name = entry.name
+            entries[index].authoredSize = entry.authoredSize
+            save()
+            return
+        }
         entries.insert(entry, at: 0)
         if entries.count > Self.limit {
             entries.removeLast(entries.count - Self.limit)

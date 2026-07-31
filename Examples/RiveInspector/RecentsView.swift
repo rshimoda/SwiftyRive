@@ -16,7 +16,7 @@ struct RecentsView: View {
                 list
             }
         }
-        .navigationTitle("Recents")
+        .navigationTitle("Rive Inspector")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 openAffordance
