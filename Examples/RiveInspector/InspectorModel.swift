@@ -27,6 +27,8 @@ enum OpenedSource: Hashable {
 @Observable
 final class InspectorModel {
     let recents = RecentsStore()
+    /// Session-long cache behind the recents tiles' artwork.
+    let previews: RecentPreviewStore
 
     private(set) var document: RiveDocument?
     private(set) var openedSource: OpenedSource?
@@ -60,6 +62,10 @@ final class InspectorModel {
             return "—"
         }
         return Self.sizeText(size)
+    }
+
+    init() {
+        previews = RecentPreviewStore(recents: recents)
     }
 
     // MARK: Opening
@@ -122,27 +128,22 @@ final class InspectorModel {
         defer { isLoading = false }
         errorMessage = nil
 
-        var didAccess = false
-        if case .local(let url) = source {
-            didAccess = url.startAccessingSecurityScopedResource()
-        }
-        defer {
-            if didAccess, case .local(let url) = source {
-                url.stopAccessingSecurityScopedResource()
+        // A local file stays readable — and re-bookmarkable — only inside its
+        // security scope, so recording the entry happens in there too.
+        await source.url.withSecurityScopedAccess {
+            do {
+                let loaded = try await RiveDocument.load(.url(source.url))
+                document = loaded
+                openedSource = source
+                if let current = artboard,
+                    preservingSelection == false || loaded.artboardNames.contains(current) == false {
+                    artboard = nil
+                }
+                await remakeInstance()
+                record(source, document: loaded)
+            } catch {
+                errorMessage = error.localizedDescription
             }
-        }
-        do {
-            let loaded = try await RiveDocument.load(.url(source.url))
-            document = loaded
-            openedSource = source
-            if let current = artboard,
-                preservingSelection == false || loaded.artboardNames.contains(current) == false {
-                artboard = nil
-            }
-            await remakeInstance()
-            record(source, document: loaded)
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 

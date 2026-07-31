@@ -31,6 +31,22 @@ nonisolated struct RecentEntry: Identifiable, Hashable, Codable {
     }
 }
 
+extension URL {
+    /// Runs `body` while holding security-scoped access to the receiver.
+    ///
+    /// A sandboxed build can only read a bookmarked file — and can only mint a
+    /// fresh bookmark for it — inside this scope. URLs that neither need nor
+    /// grant access (remote sources, files in an unsandboxed build) simply run
+    /// `body` unchanged.
+    func withSecurityScopedAccess<T>(_ body: () async throws -> T) async rethrows -> T {
+        let didAccess = startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { stopAccessingSecurityScopedResource() }
+        }
+        return try await body()
+    }
+}
+
 /// Opened files in first-open order, newest first, persisted to `UserDefaults` as JSON
 /// (under `swift run` that resolves to the process-name preferences domain, so
 /// the SPM executable and the app builds share the same code path).
@@ -78,11 +94,6 @@ final class RecentsStore {
                 openedAt: .now
             )
         )
-    }
-
-    func remove(atOffsets offsets: IndexSet) {
-        entries.remove(atOffsets: offsets)
-        save()
     }
 
     func remove(_ entry: RecentEntry) {

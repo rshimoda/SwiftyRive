@@ -1,19 +1,24 @@
 import SwiftUI
 
-/// Root of the detail stack: previously opened files, newest first. Rows
-/// swipe-to-delete (context menu on macOS, where swiping is awkward) and dim
-/// when a local file can no longer be resolved.
+/// Root of the detail stack: previously opened files, newest first, as a grid
+/// of preview tiles. Each tile renders its own frame through
+/// ``RecentPreviewStore``, a context menu removes the entry, and tiles whose
+/// file can no longer be resolved dim instead of disappearing.
 struct RecentsView: View {
     let model: InspectorModel
 
     @State private var unavailableIDs: Set<RecentEntry.ID> = []
+
+    /// Two tiles across an iPhone, four on an iPad in portrait, as many as fit
+    /// as a Mac window widens — and never one grown past thumbnail size.
+    private static let columns = [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 16)]
 
     var body: some View {
         Group {
             if model.recents.entries.isEmpty {
                 emptyState
             } else {
-                list
+                grid
             }
         }
         .navigationTitle("Rive Inspector")
@@ -50,19 +55,25 @@ struct RecentsView: View {
         .help("Open a .riv file from disk or the web")
     }
 
-    private var list: some View {
-        List {
-            ForEach(model.recents.entries) { entry in
-                RecentRow(entry: entry, isAvailable: !unavailableIDs.contains(entry.id)) {
-                    open(entry)
-                }
-                .contextMenu {
-                    Button("Remove from Recents", systemImage: "trash", role: .destructive) {
-                        model.recents.remove(entry)
+    private var grid: some View {
+        ScrollView {
+            LazyVGrid(columns: Self.columns, spacing: 20) {
+                ForEach(model.recents.entries) { entry in
+                    RecentTile(
+                        entry: entry,
+                        previews: model.previews,
+                        isAvailable: unavailableIDs.contains(entry.id) == false
+                    ) {
+                        open(entry)
+                    }
+                    .contextMenu {
+                        Button("Remove", systemImage: "trash", role: .destructive) {
+                            model.recents.remove(entry)
+                        }
                     }
                 }
             }
-            .onDelete { model.recents.remove(atOffsets: $0) }
+            .padding(16)
         }
     }
 
@@ -101,55 +112,115 @@ struct RecentsView: View {
     }
 }
 
-/// One recents row: file name, authored-size subtitle, and a Local/Remote
-/// source badge. Unresolvable entries render dimmed with an error subtitle but
-/// stay deletable.
-private struct RecentRow: View {
+/// One recents tile: a rendered frame of the file over a subtle backdrop, with
+/// the file name, a source badge, and when it was added underneath. The whole
+/// tile opens the file; unresolvable entries dim and show a warning in place of
+/// artwork but stay deletable.
+private struct RecentTile: View {
+    /// What the preview area shows right now.
+    private enum Phase {
+        case loading
+        case ready(CGImage)
+        case unavailable
+    }
+
     let entry: RecentEntry
+    let previews: RecentPreviewStore
     let isAvailable: Bool
     let open: () -> Void
 
+    @State private var phase = Phase.loading
+    @State private var isHovering = false
+
+    /// Transparent artwork needs a lid: without the border a preview with no
+    /// background of its own bleeds into the window.
+    private static let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 12) {
-                Image(systemName: iconName)
-                    .foregroundStyle(isAvailable ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                    .frame(width: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.name)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer()
-                Text(entry.isRemote ? "Remote" : "Local")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: .capsule)
+            VStack(alignment: .leading, spacing: 8) {
+                preview
+                caption
             }
-            .padding(.vertical, 4)
             .contentShape(.rect)
             .opacity(isAvailable ? 1 : 0.5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TileButtonStyle())
+        .onHover { isHovering = $0 }
         .help(helpText)
+        .task(id: entry.id) { await loadPreview() }
     }
 
-    private var iconName: String {
-        if isAvailable == false { return "exclamationmark.triangle" }
-        return entry.isRemote ? "globe" : "doc"
+    private var preview: some View {
+        artwork
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                ZStack {
+                    Self.shape.fill(.quinary)
+                    Self.shape.fill(.quaternary).opacity(isHovering ? 1 : 0)
+                }
+            }
+            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .clipShape(Self.shape)
+            .overlay { Self.shape.strokeBorder(.quaternary, lineWidth: 1) }
+            .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 
-    private var subtitle: String? {
-        if isAvailable == false { return "File not found" }
-        return entry.authoredSize
+    @ViewBuilder
+    private var artwork: some View {
+        switch phase {
+        case .loading:
+            ProgressView()
+                .controlSize(.small)
+                .transition(.opacity)
+        case .ready(let image):
+            Image(decorative: image, scale: 2)
+                .resizable()
+                .scaledToFit()
+                .transition(.opacity)
+        case .unavailable:
+            Image(systemName: "exclamationmark.triangle")
+                .font(.title3)
+                .foregroundStyle(.tertiary)
+                .transition(.opacity)
+        }
+    }
+
+    private var caption: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(entry.name)
+                .font(.subheadline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            HStack(spacing: 8) {
+                Text(entry.isRemote ? "Link" : "Local")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: .capsule)
+                if isAvailable {
+                    Text(entry.openedAt, format: .relative(presentation: .named))
+                } else {
+                    Text("File not found")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+    }
+
+    /// Renders on first appearance only: an entry already in the cache shows
+    /// its artwork immediately instead of flashing the loading state again.
+    private func loadPreview() async {
+        if let cached = previews.cachedImage(for: entry) {
+            phase = .ready(cached)
+            return
+        }
+        let image = await previews.image(for: entry)
+        withAnimation(.easeOut(duration: 0.2)) {
+            phase = image.map(Phase.ready) ?? .unavailable
+        }
     }
 
     private var helpText: String {
@@ -157,6 +228,16 @@ private struct RecentRow: View {
         case .local(let path, _): path
         case .remote(let url): url.absoluteString
         }
+    }
+}
+
+/// Press feedback for a whole-tile button: a small, quick shrink, so the tile
+/// reacts the way a thumbnail should instead of flashing a system highlight.
+private struct TileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
