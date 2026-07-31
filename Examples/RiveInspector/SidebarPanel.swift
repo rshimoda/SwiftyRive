@@ -1,89 +1,118 @@
 import SwiftUI
 import SwiftyRive
 
-/// Trailing inspector: sizing demos plus one auto-generated control per
-/// discovered data-binding property, grouped by parent view-model path.
-struct InspectorPanel: View {
-    let document: RiveDocument
-    let instance: RiveDynamicInstance?
-    let artboard: String?
-    let fit: RiveFit
-    @Binding var useNaturalSize: Bool
-    @Binding var naturalAxisMode: NaturalAxisMode
-    let bindingNote: String?
+/// The single (leading) sidebar: artboard selection, view options, and one
+/// auto-generated control per discovered data-binding property, grouped by
+/// parent view-model path. Shows a neutral placeholder while no file is open.
+struct SidebarPanel: View {
+    @Bindable var model: InspectorModel
 
     @State private var isPopoverPresented = false
 
     var body: some View {
+        if let document = model.document {
+            controls(for: document)
+        } else {
+            emptyState
+        }
+    }
+
+    /// Deliberately neutral: the actionable empty state lives in the detail
+    /// area; the sidebar just states why it has nothing to show.
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.title2)
+                .foregroundStyle(.tertiary)
+            Text("No File Open")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func controls(for document: RiveDocument) -> some View {
         Form {
+            Section {
+                Picker("Artboard", selection: $model.artboard) {
+                    Text("Default").tag(String?.none)
+                    ForEach(document.artboardNames, id: \.self) { name in
+                        Text(name).tag(String?.some(name))
+                    }
+                }
+            }
             Section("View") {
-                Toggle("Natural size", isOn: $useNaturalSize)
-                if useNaturalSize {
-                    Picker("Axes", selection: $naturalAxisMode) {
+                Picker("Fit", selection: $model.fit) {
+                    Text("Contain").tag(RiveFit.contain)
+                    Text("Cover").tag(RiveFit.cover)
+                    Text("Fill").tag(RiveFit.fill)
+                    Text("Fit Width").tag(RiveFit.fitWidth)
+                    Text("Fit Height").tag(RiveFit.fitHeight)
+                    Text("Scale Down").tag(RiveFit.scaleDown)
+                    Text("Actual Size").tag(RiveFit.actualSize)
+                }
+                Toggle("Natural size", isOn: $model.useNaturalSize)
+                if model.useNaturalSize {
+                    Picker("Axes", selection: $model.naturalAxisMode) {
                         ForEach(NaturalAxisMode.allCases, id: \.self) { mode in
                             Text(mode.rawValue).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
                 }
-                LabeledContent("Authored size", value: artboardSizeText)
+                LabeledContent("Authored size", value: model.authoredSizeText)
                 Button("Show in Popover") { isPopoverPresented = true }
                     .popover(isPresented: $isPopoverPresented, arrowEdge: .leading) {
-                        popoverContent
+                        popoverContent(for: document)
                     }
             }
-            if let instance {
-                if instance.properties.isEmpty {
-                    Section("Properties") {
-                        Text("The view model has no properties.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                ForEach(propertyGroups(of: instance), id: \.parent) { group in
-                    Section {
-                        ForEach(group.properties) { property in
-                            PropertyRow(property: property, instance: instance)
-                        }
-                    } header: {
-                        if group.parent.isEmpty {
-                            Text("Properties")
-                        } else {
-                            Text(group.parent)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .help(group.parent)
-                        }
-                    }
-                }
-            } else if let bindingNote {
-                Section("Properties") {
-                    Text(bindingNote)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            propertySections
         }
         .formStyle(.grouped)
     }
 
-    /// The authored artboard size, e.g. "500 × 500 pt", or "—" when it cannot
-    /// be read.
-    private var artboardSizeText: String {
-        guard let size = try? document.artboardSize(named: artboard) else { return "—" }
-        let format = FloatingPointFormatStyle<Double>.number
-            .grouping(.never)
-            .precision(.fractionLength(0...1))
-        return "\(Double(size.width).formatted(format)) × \(Double(size.height).formatted(format)) pt"
+    @ViewBuilder
+    private var propertySections: some View {
+        if let instance = model.instance {
+            if instance.properties.isEmpty {
+                Section("Properties") {
+                    Text("The view model has no properties.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            ForEach(propertyGroups(of: instance), id: \.parent) { group in
+                Section {
+                    ForEach(group.properties) { property in
+                        PropertyRow(property: property, instance: instance)
+                    }
+                } header: {
+                    if group.parent.isEmpty {
+                        Text("Properties")
+                    } else {
+                        Text(group.parent)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(group.parent)
+                    }
+                }
+            }
+        } else if let bindingNote = model.bindingNote {
+            Section("Properties") {
+                Text(bindingNote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// Deliberately no explicit frame: the popover sizes itself from the
     /// artboard's authored size. Uses the document-based view so the main pane
     /// keeps its advance-nudge registration.
-    private var popoverContent: some View {
-        RiveView(document, artboard: artboard)
-            .riveFit(fit)
+    private func popoverContent(for document: RiveDocument) -> some View {
+        RiveView(document, artboard: model.artboard)
+            .riveFit(model.fit)
             .riveNaturalSize()
             .padding(8)
             // Safety valve for huge artboards: caps the natural size at

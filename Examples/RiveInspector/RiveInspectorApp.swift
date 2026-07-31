@@ -1,7 +1,8 @@
 // RiveInspector — a minimal demo app for SwiftyRive's dynamic API.
-// Drop any .riv file to auto-discover its artboards and data-binding
-// properties, rendered as live controls. Runs on macOS via
-// `swift run RiveInspector` and on iOS via Examples/RiveInspectorApp.
+// Open any .riv file (drag & drop, file picker, URL, or a recents entry) to
+// auto-discover its artboards and data-binding properties, rendered as live
+// controls. Runs on macOS via `swift run RiveInspector` and on iOS via
+// Examples/RiveInspectorApp.
 import SwiftUI
 #if os(macOS)
 import AppKit

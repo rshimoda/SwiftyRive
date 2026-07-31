@@ -1,164 +1,222 @@
 import SwiftUI
 import SwiftyRive
 import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-#endif
 
-/// Which axes the natural-size demo leaves for the artboard to decide.
-enum NaturalAxisMode: String, CaseIterable {
-    /// Neither axis proposed — the view takes the authored artboard size.
-    case both = "Both"
-    /// Width pinned to 240 pt — height follows from the artboard's aspect ratio.
-    case widthFixed = "Width-fixed"
+/// Screens pushed onto the detail stack.
+enum InspectorRoute: Hashable {
+    case file
 }
 
-/// Sidebar = artboards, detail = canvas, trailing inspector = properties.
-/// Files arrive via drag & drop, the file importer, or a launch argument
-/// (`swift run RiveInspector path/to/file.riv`).
+/// Navigation shell. Regular widths (macOS, iPad): `NavigationSplitView` with
+/// the controls sidebar leading and a `NavigationStack` (Recents → file
+/// screen) in the detail column. Compact widths (iPhone): the same stack alone,
+/// with the controls reachable as a sheet from the file screen's toolbar.
+///
+/// Files arrive via drag & drop, the file importer, a URL prompt, a recents
+/// row, or a launch argument (`swift run RiveInspector path/to/file.riv`) —
+/// every successful open records a recents entry and pushes the file screen.
 struct ContentView: View {
-    @State private var document: RiveDocument?
-    @State private var sourceURL: URL?
-    @State private var instance: RiveDynamicInstance?
-    @State private var artboard: String?
-    @State private var fit: RiveFit = .contain
-    @State private var isPaused = false
-    @State private var useNaturalSize = false
-    @State private var naturalAxisMode: NaturalAxisMode = .both
-    @State private var errorText: String?
-    @State private var bindingNote: String?
-    @State private var isImporterPresented = false
-    @State private var isInspectorPresented = true
-    @State private var didCopySchema = false
+    @State private var model = InspectorModel()
+    @State private var path: [InspectorRoute] = []
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
 
     var body: some View {
+        layout
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: { $0.pathExtension.lowercased() == "riv" }) else {
+                    return false
+                }
+                Task { await model.open(local: url) }
+                return true
+            }
+            .fileImporter(
+                isPresented: $model.isImporterPresented,
+                allowedContentTypes: [UTType(filenameExtension: "riv") ?? .data]
+            ) { result in
+                if case .success(let url) = result {
+                    Task { await model.open(local: url) }
+                }
+            }
+            .sheet(isPresented: $model.isURLPromptPresented) {
+                OpenURLSheet { url in
+                    Task { await model.open(remote: url) }
+                }
+            }
+            .alert("Couldn't Load File", isPresented: isErrorPresented) {
+                Button("OK") { model.errorMessage = nil }
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
+            .onChange(of: documentIdentity) {
+                // Any successful open (drop, importer, URL, recents row,
+                // launch argument) lands on the file screen.
+                if model.document != nil, path.isEmpty {
+                    path = [.file]
+                }
+            }
+            .onChange(of: path) {
+                // Standard back navigation closes the session, returning the
+                // sidebar to its neutral empty state.
+                if path.isEmpty {
+                    model.close()
+                }
+            }
+            .task {
+                if let argument = Self.launchFileArgument {
+                    await model.open(local: URL(fileURLWithPath: argument))
+                }
+            }
+    }
+
+    // MARK: Layout
+
+    @ViewBuilder
+    private var layout: some View {
+        #if os(iOS)
+        if horizontalSizeClass == .compact {
+            detailStack
+        } else {
+            splitLayout
+        }
+        #else
+        splitLayout
+        #endif
+    }
+
+    private var splitLayout: some View {
         NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 160, ideal: 200)
+            SidebarPanel(model: model)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
+                .navigationTitle("RiveInspector")
         } detail: {
-            detail
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first(where: { $0.pathExtension.lowercased() == "riv" }) else { return false }
-            load(url)
-            return true
-        }
-        .fileImporter(
-            isPresented: $isImporterPresented,
-            allowedContentTypes: [UTType(filenameExtension: "riv") ?? .data]
-        ) { result in
-            if case .success(let url) = result {
-                load(url)
-            }
-        }
-        .task {
-            if CommandLine.arguments.count > 1 {
-                load(URL(fileURLWithPath: CommandLine.arguments[1]))
-            }
+            detailStack
         }
     }
 
-    // MARK: Columns
-
-    private var sidebar: some View {
-        Group {
-            if let document {
-                List(selection: $artboard) {
-                    Section("Artboards") {
-                        Text("Default").tag(String?.none)
-                        ForEach(document.artboardNames, id: \.self) { name in
-                            Text(name).tag(String?.some(name))
-                        }
+    private var detailStack: some View {
+        NavigationStack(path: $path) {
+            RecentsView(model: model)
+                .navigationDestination(for: InspectorRoute.self) { route in
+                    switch route {
+                    case .file:
+                        FileScreen(model: model)
                     }
                 }
-            } else {
-                ContentUnavailableView {
-                    Label("No File", systemImage: "doc")
-                } description: {
-                    Text("Open a .riv file to list its artboards.")
-                } actions: {
-                    Button("Open…") { isImporterPresented = true }
-                }
-            }
         }
-        .navigationTitle("RiveInspector")
     }
 
-    private var detail: some View {
+    // MARK: Helpers
+
+    private var documentIdentity: ObjectIdentifier? {
+        model.document.map(ObjectIdentifier.init)
+    }
+
+    private var isErrorPresented: Binding<Bool> {
+        Binding(
+            get: { model.errorMessage != nil },
+            set: { if $0 == false { model.errorMessage = nil } }
+        )
+    }
+
+    /// First `.riv` launch argument, e.g. `swift run RiveInspector file.riv`.
+    /// Extension-matched so the arguments Xcode and the simulator inject are
+    /// never mistaken for a file to open.
+    private static var launchFileArgument: String? {
+        CommandLine.arguments.dropFirst().first {
+            $0.hasPrefix("-") == false && $0.lowercased().hasSuffix(".riv")
+        }
+    }
+}
+
+/// The canvas screen for the open document. All controls live in the top
+/// toolbar and the leading sidebar — nothing floats over the canvas.
+struct FileScreen: View {
+    let model: InspectorModel
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isControlsPresented = false
+    #endif
+
+    var body: some View {
         Group {
-            if let document {
+            if let document = model.document {
                 canvas(for: document)
             } else {
-                emptyState
+                // Transient while the session closes on the way back.
+                Color.clear
             }
         }
-        .inspector(isPresented: $isInspectorPresented) {
-            if let document {
-                InspectorPanel(
-                    document: document,
-                    instance: instance,
-                    artboard: artboard,
-                    fit: fit,
-                    useNaturalSize: $useNaturalSize,
-                    naturalAxisMode: $naturalAxisMode,
-                    bindingNote: bindingNote
-                )
-                .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
-            }
-        }
+        .navigationTitle(model.displayName)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar { toolbarContent }
-        .navigationTitle(sourceURL?.lastPathComponent ?? "Canvas")
-        .onChange(of: artboard) {
-            if let document {
-                Task { await remakeInstance(for: document) }
-            }
+        .onChange(of: model.artboard) {
+            Task { await model.artboardDidChange() }
         }
+        #if os(iOS)
+        .sheet(isPresented: $isControlsPresented) {
+            NavigationStack {
+                SidebarPanel(model: model)
+                    .navigationTitle("Controls")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isControlsPresented = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+        }
+        #endif
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
-            Button("Reload", systemImage: "arrow.clockwise", action: reload)
-                .keyboardShortcut("r")
-                .disabled(sourceURL == nil)
-                .help("Reload the file from disk")
+            Button(
+                model.isPaused ? "Play" : "Pause",
+                systemImage: model.isPaused ? "play.fill" : "pause.fill"
+            ) {
+                model.isPaused.toggle()
+            }
+            .help(model.isPaused ? "Play" : "Pause")
+            Button("Reload", systemImage: "arrow.clockwise") {
+                Task { await model.reload() }
+            }
+            .keyboardShortcut("r")
+            .help("Reload the file from its source")
             Button(
                 "Copy Swift Schema",
-                systemImage: didCopySchema ? "checkmark" : "doc.on.doc"
+                systemImage: model.didCopySchema ? "checkmark" : "doc.on.doc"
             ) {
-                if let document { copySchemaSource(of: document) }
+                Task { await model.copySchemaSource() }
             }
-            .disabled(document == nil)
             .help("Copy a generated RiveSchema for this file to the clipboard")
-            Button("Inspector", systemImage: "sidebar.trailing") {
-                isInspectorPresented.toggle()
-            }
-            .keyboardShortcut("i", modifiers: [.command, .option])
-            .help("Show or hide the inspector")
         }
+        #if os(iOS)
+        if horizontalSizeClass == .compact {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Controls", systemImage: "slider.horizontal.3") {
+                    isControlsPresented = true
+                }
+                .help("Show the artboard, view, and property controls")
+            }
+        }
+        #endif
     }
 
     // MARK: Canvas
 
     private func canvas(for document: RiveDocument) -> some View {
-        VStack(spacing: 0) {
-            Group {
-                if useNaturalSize {
-                    naturalSizePane(for: document)
-                } else {
-                    riveView(for: document)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                playbackControls
-                    .padding(.bottom, 16)
-            }
-            if let errorText {
-                Text(errorText)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-                    .padding(8)
+        Group {
+            if model.useNaturalSize {
+                naturalSizePane(for: document)
+            } else {
+                riveView(for: document)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -167,54 +225,14 @@ struct ContentView: View {
     /// with the current fit and pause state applied.
     private func riveView(for document: RiveDocument) -> some View {
         Group {
-            if let instance {
-                RiveView(instance, artboard: artboard)
+            if let instance = model.instance {
+                RiveView(instance, artboard: model.artboard)
             } else {
-                RiveView(document, artboard: artboard)
+                RiveView(document, artboard: model.artboard)
             }
         }
-        .riveFit(fit)
-        .rivePaused(isPaused)
-    }
-
-    /// Floating play/pause + fit controls over the canvas: Liquid Glass on
-    /// OS 26, a plain material capsule before that.
-    @ViewBuilder
-    private var playbackControls: some View {
-        let bar = HStack(spacing: 4) {
-            Button {
-                isPaused.toggle()
-            } label: {
-                Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                    .frame(width: 32, height: 32)
-                    .contentShape(.circle)
-            }
-            .help(isPaused ? "Play" : "Pause")
-            Menu {
-                Picker("Fit", selection: $fit) {
-                    Text("Contain").tag(RiveFit.contain)
-                    Text("Cover").tag(RiveFit.cover)
-                    Text("Fill").tag(RiveFit.fill)
-                    Text("Fit Width").tag(RiveFit.fitWidth)
-                    Text("Scale Down").tag(RiveFit.scaleDown)
-                    Text("Actual Size").tag(RiveFit.actualSize)
-                }
-            } label: {
-                Image(systemName: "aspectratio")
-                    .frame(width: 32, height: 32)
-                    .contentShape(.circle)
-            }
-            .menuIndicator(.hidden)
-            .help("Fit")
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.primary)
-        .padding(4)
-        if #available(iOS 26.0, macOS 26.0, *) {
-            bar.glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            bar.background(.regularMaterial, in: .capsule)
-        }
+        .riveFit(model.fit)
+        .rivePaused(model.isPaused)
     }
 
     /// Natural-size demo over a checkerboard, with a border marking the view's
@@ -224,7 +242,7 @@ struct ContentView: View {
         ZStack {
             CheckerboardBackground()
             Group {
-                switch naturalAxisMode {
+                switch model.naturalAxisMode {
                 case .both:
                     riveView(for: document)
                         .riveNaturalSize()
@@ -240,24 +258,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            ContentUnavailableView {
-                Label("Drop a .riv File", systemImage: "arrow.down.doc")
-            } description: {
-                Text("Drag a file anywhere in the window, or open one.")
-            } actions: {
-                Button("Open…") { isImporterPresented = true }
-            }
-            if let errorText {
-                Text(errorText)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 20)
-            }
-        }
     }
 
     /// Subtle alternating squares that make the Rive view's edges legible in
@@ -276,74 +276,6 @@ struct ContentView: View {
                         context.fill(Path(square), with: .color(.primary.opacity(0.06)))
                     }
                 }
-            }
-        }
-    }
-
-    // MARK: Loading
-
-    private func load(_ url: URL, preservingSelection: Bool = false) {
-        Task {
-            errorText = nil
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccess { url.stopAccessingSecurityScopedResource() }
-            }
-            do {
-                let loaded = try await RiveDocument.load(.url(url))
-                document = loaded
-                sourceURL = url
-                if let current = artboard,
-                    preservingSelection == false || loaded.artboardNames.contains(current) == false {
-                    artboard = nil
-                }
-                await remakeInstance(for: loaded)
-            } catch {
-                errorText = error.localizedDescription
-            }
-        }
-    }
-
-    /// Evicts the document from the shared engine and reloads it from disk,
-    /// keeping the selected artboard when it still exists. For the "designer
-    /// just re-exported the file" loop.
-    private func reload() {
-        guard let url = sourceURL else { return }
-        Task {
-            await RiveEngine.shared.removeDocument(for: .url(url))
-            load(url, preservingSelection: true)
-        }
-    }
-
-    /// The document is cached, so recreating the dynamic instance on every
-    /// artboard switch is cheap.
-    private func remakeInstance(for document: RiveDocument) async {
-        do {
-            instance = try await document.makeDynamicInstance(artboard: artboard)
-            bindingNote = nil
-        } catch {
-            instance = nil
-            bindingNote = "No data bindings for this artboard — rendering without controls."
-        }
-    }
-
-    /// Generates a schema for the selected artboard and puts the source on the
-    /// general pasteboard, briefly swapping the icon to a checkmark.
-    private func copySchemaSource(of document: RiveDocument) {
-        Task {
-            do {
-                let source = try await document.generateSchemaSource(artboard: artboard)
-                #if os(macOS)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(source, forType: .string)
-                #else
-                UIPasteboard.general.string = source
-                #endif
-                didCopySchema = true
-                try? await Task.sleep(for: .seconds(1.5))
-                didCopySchema = false
-            } catch {
-                errorText = error.localizedDescription
             }
         }
     }
