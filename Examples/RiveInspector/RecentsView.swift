@@ -7,9 +7,6 @@ struct RecentsView: View {
     let model: InspectorModel
 
     @State private var unavailableIDs: Set<RecentEntry.ID> = []
-    #if os(iOS)
-    @State private var isOpenChoicePresented = false
-    #endif
 
     var body: some View {
         Group {
@@ -25,12 +22,6 @@ struct RecentsView: View {
                 openAffordance
             }
         }
-        #if os(iOS)
-        .confirmationDialog("Open", isPresented: $isOpenChoicePresented, titleVisibility: .hidden) {
-            Button("Open Local File…") { model.isImporterPresented = true }
-            Button("Open Link…") { model.isURLPromptPresented = true }
-        }
-        #endif
         .overlay {
             if model.isLoading {
                 ProgressView()
@@ -40,12 +31,10 @@ struct RecentsView: View {
         .task(id: model.recents.entries) { refreshAvailability() }
     }
 
-    /// One "add" affordance for both sources. macOS gets a toolbar `Menu`
-    /// (an action sheet is not idiomatic there, and menu items keep their
-    /// ⌘O / ⇧⌘O equivalents); iOS gets the action sheet the platform expects.
-    @ViewBuilder
+    /// One "add" affordance for both sources. A `Menu` on every platform: the
+    /// system anchors it to the button, and menu items keep their ⌘O / ⇧⌘O
+    /// equivalents for hardware keyboards.
     private var openAffordance: some View {
-        #if os(macOS)
         Menu {
             Button("Open Local File…", systemImage: "folder") {
                 model.isImporterPresented = true
@@ -59,12 +48,6 @@ struct RecentsView: View {
             Label("Open", systemImage: "plus")
         }
         .help("Open a .riv file from disk or the web")
-        #else
-        Button("Open", systemImage: "plus") {
-            isOpenChoicePresented = true
-        }
-        .help("Open a .riv file from disk or the web")
-        #endif
     }
 
     private var list: some View {
