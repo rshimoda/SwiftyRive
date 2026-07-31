@@ -173,9 +173,12 @@ struct FileScreen: View {
         #endif
     }
 
+    /// Two groups, deliberately: playback first, then the options affordance.
+    /// On iOS 26 `ToolbarSpacer(.fixed)` splits them into separate Liquid Glass
+    /// capsules; on older systems the groups still keep the ordering.
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
+        ToolbarItemGroup(placement: Self.actionPlacement) {
             Button(
                 model.isPaused ? "Play" : "Pause",
                 systemImage: model.isPaused ? "play.fill" : "pause.fill"
@@ -188,23 +191,29 @@ struct FileScreen: View {
             }
             .keyboardShortcut("r")
             .help("Reload the file from its source")
-            Button(
-                "Copy Swift Schema",
-                systemImage: model.didCopySchema ? "checkmark" : "doc.on.doc"
-            ) {
-                Task { await model.copySchemaSource() }
-            }
-            .help("Copy a generated RiveSchema for this file to the clipboard")
         }
         #if os(iOS)
+        // Regular widths keep every option in the always-visible sidebar, so
+        // this second group exists only where the sidebar is a sheet.
         if horizontalSizeClass == .compact {
-            ToolbarItem(placement: .topBarTrailing) {
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Controls", systemImage: "slider.horizontal.3") {
                     isControlsPresented = true
                 }
                 .help("Show the artboard, view, and property controls")
             }
         }
+        #endif
+    }
+
+    private static var actionPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .topBarTrailing
+        #else
+        .primaryAction
         #endif
     }
 

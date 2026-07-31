@@ -1,10 +1,5 @@
 import SwiftUI
 import SwiftyRive
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 /// Which axes the natural-size demo leaves for the artboard to decide.
 enum NaturalAxisMode: String, CaseIterable {
@@ -38,7 +33,6 @@ final class InspectorModel {
     private(set) var instance: RiveDynamicInstance?
     private(set) var bindingNote: String?
     private(set) var isLoading = false
-    private(set) var didCopySchema = false
 
     var artboard: String?
     var fit: RiveFit = .contain
@@ -118,26 +112,6 @@ final class InspectorModel {
     /// artboard switch is cheap.
     func artboardDidChange() async {
         await remakeInstance()
-    }
-
-    /// Generates a schema for the selected artboard and puts the source on the
-    /// general pasteboard, briefly swapping the icon to a checkmark.
-    func copySchemaSource() async {
-        guard let document else { return }
-        do {
-            let source = try await document.generateSchemaSource(artboard: artboard)
-            #if os(macOS)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(source, forType: .string)
-            #else
-            UIPasteboard.general.string = source
-            #endif
-            didCopySchema = true
-            try? await Task.sleep(for: .seconds(1.5))
-            didCopySchema = false
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 
     // MARK: Loading

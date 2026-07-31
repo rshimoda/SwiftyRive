@@ -7,6 +7,9 @@ struct RecentsView: View {
     let model: InspectorModel
 
     @State private var unavailableIDs: Set<RecentEntry.ID> = []
+    #if os(iOS)
+    @State private var isOpenChoicePresented = false
+    #endif
 
     var body: some View {
         Group {
@@ -18,19 +21,16 @@ struct RecentsView: View {
         }
         .navigationTitle("Recents")
         .toolbar {
-            ToolbarItemGroup {
-                Button("Open File…", systemImage: "folder") {
-                    model.isImporterPresented = true
-                }
-                .keyboardShortcut("o")
-                .help("Open a .riv file from disk")
-                Button("Open URL…", systemImage: "link") {
-                    model.isURLPromptPresented = true
-                }
-                .keyboardShortcut("O")
-                .help("Load a .riv file from the web")
+            ToolbarItem(placement: .primaryAction) {
+                openAffordance
             }
         }
+        #if os(iOS)
+        .confirmationDialog("Open", isPresented: $isOpenChoicePresented, titleVisibility: .hidden) {
+            Button("Open Local File…") { model.isImporterPresented = true }
+            Button("Open Link…") { model.isURLPromptPresented = true }
+        }
+        #endif
         .overlay {
             if model.isLoading {
                 ProgressView()
@@ -38,6 +38,33 @@ struct RecentsView: View {
             }
         }
         .task(id: model.recents.entries) { refreshAvailability() }
+    }
+
+    /// One "add" affordance for both sources. macOS gets a toolbar `Menu`
+    /// (an action sheet is not idiomatic there, and menu items keep their
+    /// ⌘O / ⇧⌘O equivalents); iOS gets the action sheet the platform expects.
+    @ViewBuilder
+    private var openAffordance: some View {
+        #if os(macOS)
+        Menu {
+            Button("Open Local File…", systemImage: "folder") {
+                model.isImporterPresented = true
+            }
+            .keyboardShortcut("o")
+            Button("Open Link…", systemImage: "link") {
+                model.isURLPromptPresented = true
+            }
+            .keyboardShortcut("O")
+        } label: {
+            Label("Open", systemImage: "plus")
+        }
+        .help("Open a .riv file from disk or the web")
+        #else
+        Button("Open", systemImage: "plus") {
+            isOpenChoicePresented = true
+        }
+        .help("Open a .riv file from disk or the web")
+        #endif
     }
 
     private var list: some View {
@@ -62,14 +89,15 @@ struct RecentsView: View {
             Label("No Recent Files", systemImage: "clock")
         } description: {
             #if os(macOS)
-            Text("Drop a .riv file anywhere in the window, or open one from disk or a URL.")
+            Text("Drop a .riv file anywhere in the window, or open one from disk or a link.")
             #else
-            Text("Open a .riv file from disk, or load one from a URL. Dropped files open too.")
+            Text("Open a .riv file from disk, or load one from a link. Dropped files open too.")
             #endif
         } actions: {
-            Button("Open File…") { model.isImporterPresented = true }
+            // Same wording as the toolbar's menu, so one action never has two names.
+            Button("Open Local File…") { model.isImporterPresented = true }
                 .buttonStyle(.borderedProminent)
-            Button("Open URL…") { model.isURLPromptPresented = true }
+            Button("Open Link…") { model.isURLPromptPresented = true }
         }
     }
 

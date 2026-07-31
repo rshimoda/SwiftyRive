@@ -8,6 +8,7 @@ struct SidebarPanel: View {
     @Bindable var model: InspectorModel
 
     @State private var isPopoverPresented = false
+    @State private var schemaRequest: SchemaSourceRequest?
 
     var body: some View {
         if let document = model.document {
@@ -67,8 +68,20 @@ struct SidebarPanel: View {
                     }
             }
             propertySections
+            // Sits directly under the property sections it describes: the
+            // generated schema is those properties, spelled as Swift.
+            Section {
+                Button {
+                    schemaRequest = SchemaSourceRequest(document: document, artboard: model.artboard)
+                } label: {
+                    Label("Generate Swift Representation", systemImage: "swift")
+                }
+            }
         }
         .formStyle(.grouped)
+        .sheet(item: $schemaRequest) { request in
+            SchemaSourceSheet(request: request)
+        }
     }
 
     @ViewBuilder
