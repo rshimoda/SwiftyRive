@@ -99,9 +99,9 @@ private struct GlassTuner: View {
 #Preview("Side by side") {
     VStack(spacing: 24) {
         LabeledContent("No glass") { GlassSample(band: 0) }
-        LabeledContent("Rim 14pt") { GlassSample(band: 14) }
-        LabeledContent("Rim 28pt") { GlassSample(band: 28) }
-        LabeledContent("Whole tile") { GlassSample(band: nil) }
+        LabeledContent("Rim 14pt") { GlassSample(band: 5) }
+        LabeledContent("Rim 28pt") { GlassSample(band: 6) }
+        LabeledContent("Whole tile") { GlassSample(band: nil, isClear: true, radius: 4) }
         LabeledContent("Whole tile, regular") { GlassSample(band: nil, isClear: false) }
     }
     .padding(24)

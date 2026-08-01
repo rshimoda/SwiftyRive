@@ -144,7 +144,7 @@ private struct RecentTile: View {
 
     /// One shape for the crop, the hover tint, and the glass, so the artwork's
     /// edge and the material's edge are the same curve.
-    private static let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+    private static let shape = RoundedRectangle(cornerRadius: 40, style: .continuous)
 
     /// Only the artwork is the button, so the focus ring, the press feedback,
     /// and the context menu's lifted preview all trace the thumbnail rather
@@ -232,7 +232,7 @@ private struct RecentTile: View {
                 .glassEffect(.clear, in: Self.shape)
                 // Masked to a band along the rim: the material bends the
                 // artwork where a lens would, and the middle stays untouched.
-                .mask { Self.shape.strokeBorder(lineWidth: 14) }
+                .mask { Self.shape.strokeBorder(lineWidth: 6) }
         } else {
             hairline
         }
