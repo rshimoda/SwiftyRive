@@ -152,6 +152,8 @@ private struct RecentTile: View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: open) { preview }
                 .buttonStyle(TileButtonStyle())
+                // Trace the tile's corners instead of a square ring around them.
+                .contentShape(.focusEffect, Self.shape)
                 .contextMenu {
                     Button("Remove", systemImage: "trash", role: .destructive, action: remove)
                 }
