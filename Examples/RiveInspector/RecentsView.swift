@@ -140,6 +140,7 @@ private struct RecentTile: View {
 
     @State private var phase = Phase.loading
     @State private var isHovering = false
+    @FocusState private var isFocused: Bool
 
     /// One shape for the crop, the hover tint, and the glass, so the artwork's
     /// edge and the material's edge are the same curve.
@@ -150,10 +151,17 @@ private struct RecentTile: View {
     /// than boxing in the caption. Tapping the caption still opens the file.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // The system ring is a rounded rectangle of its own choosing, so it
+            // is replaced by one drawn on the tile's exact curve.
             Button(action: open) { preview }
                 .buttonStyle(TileButtonStyle())
-                // Trace the tile's corners instead of a square ring around them.
-                .contentShape(.focusEffect, Self.shape)
+                .focused($isFocused)
+                .focusEffectDisabled()
+                .overlay {
+                    Self.shape
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .opacity(isFocused ? 1 : 0)
+                }
                 .contextMenu {
                     Button("Remove", systemImage: "trash", role: .destructive, action: remove)
                 }
@@ -220,7 +228,11 @@ private struct RecentTile: View {
     private var rim: some View {
         let hairline = Self.shape.strokeBorder(.quaternary, lineWidth: 1)
         if #available(iOS 26.0, macOS 26.0, *) {
-            hairline.glassEffect(.clear, in: Self.shape)
+            hairline
+                .glassEffect(.clear, in: Self.shape)
+                // Masked to a band along the rim: the material bends the
+                // artwork where a lens would, and the middle stays untouched.
+                .mask { Self.shape.strokeBorder(lineWidth: 14) }
         } else {
             hairline
         }
